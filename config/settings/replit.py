@@ -65,6 +65,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
+    "https://*.alicee.me",
+    "https://*.replit.app",
     "https://*.replit.co",
     "https://*.repl.co",
     "https://*.replit.dev",
@@ -91,6 +93,8 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-replit-dev-key-change-me-i
 
 # CSRF配置
 CSRF_TRUSTED_ORIGINS = [
+    'https://*.alicee.me',
+    'https://*.replit.app',
     'https://*.replit.co',
     'https://*.repl.co',
     'https://*.replit.dev',
