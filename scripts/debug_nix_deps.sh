@@ -3,8 +3,6 @@
 # Nix依赖调试脚本
 # 用于逐步测试和添加依赖
 
-set -e
-
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,7 +29,7 @@ log_error() {
 # 检查当前可用的命令
 check_available_commands() {
     log_info "检查当前环境中可用的命令..."
-    
+
     local commands=(
         "python3:Python解释器"
         "libreoffice:LibreOffice"
@@ -44,20 +42,23 @@ check_available_commands() {
         "file:文件类型检测"
         "psql:PostgreSQL客户端"
     )
-    
+
     local available=0
     local total=${#commands[@]}
-    
+
     for cmd_info in "${commands[@]}"; do
-        IFS=':' read -r cmd desc <<< "$cmd_info"
+        local cmd=$(echo "$cmd_info" | cut -d':' -f1)
+        local desc=$(echo "$cmd_info" | cut -d':' -f2)
+
         if command -v "$cmd" &> /dev/null; then
-            log_success "$desc: $(which $cmd)"
-            ((available++))
+            local cmd_path=$(which "$cmd" 2>/dev/null || echo "路径获取失败")
+            log_success "$desc: $cmd_path"
+            available=$((available + 1))
         else
             log_warning "$desc: 未找到"
         fi
     done
-    
+
     log_info "可用命令: $available/$total"
     echo ""
 }
@@ -181,24 +182,34 @@ EOF
 # 主函数
 main() {
     log_info "Nix依赖调试工具"
+    log_info "DEBUG: 脚本开始执行"
     echo ""
-    
+
     # 检查可用命令
+    log_info "DEBUG: 开始检查可用命令"
     check_available_commands
-    
+    log_info "DEBUG: 命令检查完成"
+
     # 显示当前配置
+    log_info "DEBUG: 开始显示当前配置"
     show_current_config
-    
+    log_info "DEBUG: 配置显示完成"
+
     # 显示建议
+    log_info "DEBUG: 开始显示建议"
     suggest_dependency_order
-    
+    log_info "DEBUG: 建议显示完成"
+
     # 生成下一步配置
     if [[ $# -gt 0 ]]; then
+        log_info "DEBUG: 生成第$1步配置"
         generate_next_config "$1"
     else
         log_info "使用方法: $0 [步骤号]"
         log_info "例如: $0 2  # 生成第2步配置"
     fi
+
+    log_info "DEBUG: 脚本执行完成"
 }
 
 main "$@"
