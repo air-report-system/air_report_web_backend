@@ -104,6 +104,43 @@ configure_system_dependencies() {
         log_error "DEBUG: LibreOffice命令未找到"
     fi
 
+    # 检查图像处理工具
+    if command -v convert &> /dev/null; then
+        available_deps+=("imagemagick")
+        log_info "DEBUG: ImageMagick路径: $(which convert)"
+    else
+        missing_deps+=("imagemagick")
+        log_error "DEBUG: ImageMagick命令未找到"
+    fi
+
+    # 检查OCR工具
+    if command -v tesseract &> /dev/null; then
+        available_deps+=("tesseract")
+        log_info "DEBUG: Tesseract路径: $(which tesseract)"
+        log_info "DEBUG: Tesseract版本: $(tesseract --version 2>&1 | head -n1 || echo '获取版本失败')"
+    else
+        missing_deps+=("tesseract")
+        log_error "DEBUG: Tesseract命令未找到"
+    fi
+
+    # 检查PDF工具
+    if command -v pdfinfo &> /dev/null; then
+        available_deps+=("poppler_utils")
+        log_info "DEBUG: Poppler工具路径: $(which pdfinfo)"
+    else
+        missing_deps+=("poppler_utils")
+        log_error "DEBUG: Poppler工具未找到"
+    fi
+
+    # 检查文件类型检测
+    if command -v file &> /dev/null; then
+        available_deps+=("file")
+        log_info "DEBUG: file命令路径: $(which file)"
+    else
+        missing_deps+=("file")
+        log_error "DEBUG: file命令未找到"
+    fi
+
     # 检查字体配置
     if command -v fc-list &> /dev/null; then
         available_deps+=("fontconfig")
@@ -121,6 +158,46 @@ configure_system_dependencies() {
     else
         missing_deps+=("xvfb-run")
         log_error "DEBUG: Xvfb命令未找到"
+    fi
+
+    # 检查图像处理工具
+    if command -v convert &> /dev/null; then
+        available_deps+=("imagemagick")
+        log_info "DEBUG: ImageMagick路径: $(which convert)"
+        log_info "DEBUG: ImageMagick版本: $(convert --version 2>/dev/null | head -n1 || echo '获取版本失败')"
+    else
+        missing_deps+=("imagemagick")
+        log_error "DEBUG: ImageMagick命令未找到"
+    fi
+
+    # 检查OCR工具
+    if command -v tesseract &> /dev/null; then
+        available_deps+=("tesseract4")
+        log_info "DEBUG: Tesseract路径: $(which tesseract)"
+        log_info "DEBUG: Tesseract版本: $(tesseract --version 2>&1 | head -n1 || echo '获取版本失败')"
+    else
+        missing_deps+=("tesseract4")
+        log_error "DEBUG: Tesseract命令未找到"
+    fi
+
+    # 检查PDF工具
+    if command -v pdfinfo &> /dev/null; then
+        available_deps+=("poppler-utils")
+        log_info "DEBUG: Poppler工具路径: $(which pdfinfo)"
+        log_info "DEBUG: Poppler版本: $(pdfinfo -v 2>&1 | head -n1 || echo '获取版本失败')"
+    else
+        missing_deps+=("poppler-utils")
+        log_error "DEBUG: Poppler工具未找到"
+    fi
+
+    # 检查文件类型检测
+    if command -v file &> /dev/null; then
+        available_deps+=("file")
+        log_info "DEBUG: file命令路径: $(which file)"
+        log_info "DEBUG: file版本: $(file --version 2>/dev/null | head -n1 || echo '获取版本失败')"
+    else
+        missing_deps+=("file")
+        log_error "DEBUG: file命令未找到"
     fi
 
     log_info "DEBUG: 可用依赖 (${#available_deps[@]}): ${available_deps[*]}"

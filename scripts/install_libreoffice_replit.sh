@@ -117,7 +117,11 @@ check_nix_dependencies() {
         log_info "  pkgs.fontconfig"
         log_info "  pkgs.dejavu_fonts"
         log_info "  pkgs.liberation_ttf"
+        log_info "  pkgs.noto-fonts-cjk-sans"
         log_info "  pkgs.xvfb-run"
+        log_info "  pkgs.imagemagick"
+        log_info "  pkgs.tesseract4"
+        log_info "  pkgs.poppler-utils"
 
         # 检查Nix store
         log_info "DEBUG: 检查Nix store中的相关包..."
