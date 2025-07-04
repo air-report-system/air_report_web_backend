@@ -75,32 +75,104 @@ install_python_dependencies() {
     fi
 }
 
-# 安装系统依赖
-install_system_dependencies() {
-    log_info "安装系统依赖..."
-    
-    # 检查是否需要安装系统依赖
+# 配置系统依赖
+configure_system_dependencies() {
+    log_info "配置系统依赖..."
+    log_info "DEBUG: 当前工作目录: $(pwd)"
+    log_info "DEBUG: 脚本目录: $SCRIPT_DIR"
+    log_info "DEBUG: 项目根目录: $PROJECT_ROOT"
+
+    # 检查是否需要配置系统依赖
     if [[ -f "$SETUP_MARKER" ]]; then
-        log_info "系统依赖已安装，跳过..."
+        log_info "系统依赖已配置，跳过..."
+        log_info "DEBUG: 设置标记文件存在: $SETUP_MARKER"
         return 0
     fi
-    
-    # 安装LibreOffice依赖
-    if [[ -f "$SCRIPT_DIR/install_libreoffice_replit.sh" ]]; then
-        log_info "安装LibreOffice依赖..."
-        chmod +x "$SCRIPT_DIR/install_libreoffice_replit.sh"
-        "$SCRIPT_DIR/install_libreoffice_replit.sh"
+
+    # 验证Nix依赖
+    log_info "验证Nix依赖安装状态..."
+    local missing_deps=()
+    local available_deps=()
+
+    # 检查LibreOffice
+    if command -v libreoffice &> /dev/null; then
+        available_deps+=("libreoffice-fresh")
+        log_info "DEBUG: LibreOffice路径: $(which libreoffice)"
+        log_info "DEBUG: LibreOffice版本: $(libreoffice --version 2>/dev/null | head -n1 || echo '获取版本失败')"
     else
-        log_warning "LibreOffice安装脚本未找到"
+        missing_deps+=("libreoffice-fresh")
+        log_error "DEBUG: LibreOffice命令未找到"
     fi
-    
-    # 安装字体
-    if [[ -f "$SCRIPT_DIR/install_fonts_replit.sh" ]]; then
-        log_info "安装字体文件..."
-        chmod +x "$SCRIPT_DIR/install_fonts_replit.sh"
-        "$SCRIPT_DIR/install_fonts_replit.sh"
+
+    # 检查字体配置
+    if command -v fc-list &> /dev/null; then
+        available_deps+=("fontconfig")
+        log_info "DEBUG: fontconfig路径: $(which fc-list)"
+        log_info "DEBUG: 系统字体数量: $(fc-list 2>/dev/null | wc -l || echo '0')"
     else
-        log_warning "字体安装脚本未找到"
+        missing_deps+=("fontconfig")
+        log_error "DEBUG: fontconfig命令未找到"
+    fi
+
+    # 检查虚拟显示
+    if command -v Xvfb &> /dev/null; then
+        available_deps+=("xvfb-run")
+        log_info "DEBUG: Xvfb路径: $(which Xvfb)"
+    else
+        missing_deps+=("xvfb-run")
+        log_error "DEBUG: Xvfb命令未找到"
+    fi
+
+    log_info "DEBUG: 可用依赖 (${#available_deps[@]}): ${available_deps[*]}"
+
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        log_error "以下Nix依赖缺失 (${#missing_deps[@]}): ${missing_deps[*]}"
+        log_error "请在replit.nix中添加这些依赖包，然后重新启动Repl"
+        log_info "DEBUG: 当前replit.nix内容预览:"
+        if [[ -f "$PROJECT_ROOT/replit.nix" ]]; then
+            head -20 "$PROJECT_ROOT/replit.nix" | while read line; do
+                log_info "DEBUG:   $line"
+            done
+        else
+            log_error "DEBUG: replit.nix文件不存在"
+        fi
+        return 1
+    fi
+
+    log_success "所有Nix依赖验证通过"
+
+    # 配置LibreOffice
+    local libreoffice_script="$SCRIPT_DIR/install_libreoffice_replit.sh"
+    log_info "DEBUG: 检查LibreOffice配置脚本: $libreoffice_script"
+    if [[ -f "$libreoffice_script" ]]; then
+        log_info "配置LibreOffice环境..."
+        log_info "DEBUG: 执行LibreOffice配置脚本"
+        chmod +x "$libreoffice_script" 2>/dev/null || true
+        if "$libreoffice_script"; then
+            log_success "DEBUG: LibreOffice配置脚本执行成功"
+        else
+            log_error "DEBUG: LibreOffice配置脚本执行失败，返回码: $?"
+            return 1
+        fi
+    else
+        log_warning "LibreOffice配置脚本未找到: $libreoffice_script"
+    fi
+
+    # 配置字体
+    local fonts_script="$SCRIPT_DIR/install_fonts_replit.sh"
+    log_info "DEBUG: 检查字体配置脚本: $fonts_script"
+    if [[ -f "$fonts_script" ]]; then
+        log_info "配置字体文件..."
+        log_info "DEBUG: 执行字体配置脚本"
+        chmod +x "$fonts_script" 2>/dev/null || true
+        if "$fonts_script"; then
+            log_success "DEBUG: 字体配置脚本执行成功"
+        else
+            log_error "DEBUG: 字体配置脚本执行失败，返回码: $?"
+            return 1
+        fi
+    else
+        log_warning "字体配置脚本未找到: $fonts_script"
     fi
 }
 
@@ -275,9 +347,9 @@ main() {
     
     # 安装Python依赖
     install_python_dependencies
-    
-    # 安装系统依赖（仅首次运行）
-    install_system_dependencies
+
+    # 配置系统依赖（仅首次运行）
+    configure_system_dependencies
     
     # 设置环境变量
     setup_environment_variables

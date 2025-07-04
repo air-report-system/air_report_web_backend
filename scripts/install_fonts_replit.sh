@@ -37,17 +37,46 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # 检查字体目录是否存在
 check_fonts_directory() {
     log_info "检查字体目录..."
+    log_info "DEBUG: 脚本目录: $SCRIPT_DIR"
+    log_info "DEBUG: 字体目录: $FONTS_DIR"
+    log_info "DEBUG: 项目根目录: $PROJECT_ROOT"
+
     if [[ ! -d "$FONTS_DIR" ]]; then
         log_error "字体目录不存在: $FONTS_DIR"
+        log_info "DEBUG: 检查上级目录结构:"
+        if [[ -d "$(dirname "$FONTS_DIR")" ]]; then
+            ls -la "$(dirname "$FONTS_DIR")" | while read line; do
+                log_info "DEBUG:   $line"
+            done
+        else
+            log_error "DEBUG: 上级目录也不存在: $(dirname "$FONTS_DIR")"
+        fi
         exit 1
     fi
-    
+
+    log_info "DEBUG: 字体目录存在，检查内容..."
+    ls -la "$FONTS_DIR" | head -10 | while read line; do
+        log_info "DEBUG:   $line"
+    done
+
     # 检查字体文件数量
     FONT_COUNT=$(find "$FONTS_DIR" -name "*.ttf" -o -name "*.ttc" -o -name "*.otf" -o -name "*.TTF" -o -name "*.TTC" -o -name "*.OTF" | wc -l)
     log_info "发现 $FONT_COUNT 个字体文件"
-    
-    if [[ $FONT_COUNT -eq 0 ]]; then
+
+    if [[ $FONT_COUNT -gt 0 ]]; then
+        log_info "DEBUG: 字体文件列表:"
+        find "$FONTS_DIR" -name "*.ttf" -o -name "*.ttc" -o -name "*.otf" -o -name "*.TTF" -o -name "*.TTC" -o -name "*.OTF" | head -5 | while read font; do
+            log_info "DEBUG:   $(basename "$font")"
+        done
+        if [[ $FONT_COUNT -gt 5 ]]; then
+            log_info "DEBUG:   ... 还有 $((FONT_COUNT - 5)) 个字体文件"
+        fi
+    else
         log_error "字体目录中没有找到字体文件"
+        log_info "DEBUG: 搜索所有文件类型:"
+        find "$FONTS_DIR" -type f | head -10 | while read file; do
+            log_info "DEBUG:   $(basename "$file")"
+        done
         exit 1
     fi
 }
@@ -199,13 +228,32 @@ EOF
 # 更新字体缓存
 update_font_cache() {
     log_info "更新字体缓存..."
-    
+    log_info "DEBUG: 用户字体目录: $HOME/.local/share/fonts"
+
     # 检查fc-cache是否可用
     if command -v fc-cache &> /dev/null; then
-        fc-cache -fv "$HOME/.local/share/fonts"
-        log_success "字体缓存更新完成"
+        local fc_cache_path=$(which fc-cache)
+        log_info "DEBUG: fc-cache路径: $fc_cache_path"
+
+        log_info "DEBUG: 执行字体缓存更新..."
+        if fc-cache -fv "$HOME/.local/share/fonts" 2>&1 | while read line; do
+            log_info "DEBUG: fc-cache: $line"
+        done; then
+            log_success "字体缓存更新完成"
+        else
+            log_warning "字体缓存更新可能失败，但继续执行"
+        fi
+
+        # 验证缓存
+        local font_count=$(fc-list 2>/dev/null | wc -l || echo "0")
+        log_info "DEBUG: 缓存后系统字体总数: $font_count"
     else
         log_warning "fc-cache命令不可用，跳过缓存更新"
+        log_info "DEBUG: 检查fontconfig是否安装..."
+        if [[ -d "/nix/store" ]]; then
+            local fontconfig_packages=$(find /nix/store -maxdepth 1 -name "*fontconfig*" 2>/dev/null | wc -l)
+            log_info "DEBUG: Nix store中fontconfig包数量: $fontconfig_packages"
+        fi
     fi
 }
 
