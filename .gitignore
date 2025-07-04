@@ -1,0 +1,185 @@
+# Django项目 .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+
+# 环境变量
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 静态文件收集
+staticfiles/
+static_collected/
+
+# 媒体文件（生产环境）
+media/uploads/
+media/reports/
+media/monthly/
+
+# 日志文件
+logs/
+*.log
+
+# 缓存
+.cache/
+.pytest_cache/
+
+# 覆盖率报告
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# 测试
+.tox/
+.nox/
+.coverage
+.pytest_cache/
+cover/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# 备份文件
+*.bak
+*.backup
+*.tmp
+
+# 临时文件
+temp/
+tmp/
+*.temp
+
+# 开发测试文件
+test_*.txt
+*_test.txt
+*_result.txt
+validation_result*.txt
+migration_result*.txt
+migrate_result.txt
+api_test_result.txt
+
+# 开发脚本
+test_*.py
+*_test.py
+validate_*.py
+check_*.py
+quick_test.bat
+run_test.bat
+test.ps1
+
+# 数据库备份
+*.sql
+*.dump
+
+# 密钥和证书
+*.key
+*.pem
+*.crt
+*.p12
+
+# 本地配置
+local_config.py
+local_settings.py
+
+# 文档生成
+docs/_build/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# 项目特定
+# 上传的测试文件
+uploads/test/
+uploads/temp/
+
+# 生成的报告文件
+reports/test/
+reports/temp/
+
+# OCR测试结果
+ocr_results/test/
+
+# 批量处理临时文件
+batch/temp/
+
+# 月度报表临时文件
+monthly/temp/
