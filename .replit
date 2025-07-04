@@ -3,7 +3,6 @@
 
 # 运行配置
 run = """
-cd air_report_web_backend && \
 chmod +x scripts/setup_replit.sh && \
 ./scripts/setup_replit.sh && \
 python manage.py runserver 0.0.0.0:8000 --settings=config.settings.replit
