@@ -9,7 +9,7 @@ python manage.py runserver 0.0.0.0:8000 --settings=config.settings.replit
 """
 
 # 入口点配置
-entrypoint = "air_report_web_backend/manage.py"
+entrypoint = "manage.py"
 
 # 模块配置
 modules = ["python-3.12", "nix"]
@@ -28,12 +28,11 @@ start = "pylsp"
 
 # Nix配置 - 用于安装系统依赖
 [nix]
-channel = "stable-24.05"
+channel = "stable-23_11"
 
 # 部署配置
 [deployment]
 run = """
-cd air_report_web_backend && \
 chmod +x scripts/setup_replit.sh && \
 ./scripts/setup_replit.sh && \
 gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120 --settings=config.settings.replit
@@ -42,7 +41,7 @@ gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120 -
 # 环境变量配置
 [env]
 DJANGO_SETTINGS_MODULE = "config.settings.replit"
-PYTHONPATH = "air_report_web_backend"
+PYTHONPATH = "."
 PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
 
@@ -53,7 +52,7 @@ externalPort = 80
 
 # Git配置
 [gitHubImport]
-requiredFiles = [".replit", "air_report_web_backend/pyproject.toml"]
+requiredFiles = [".replit", "pyproject.toml"]
 
 # 调试配置
 [debugger]
@@ -61,7 +60,7 @@ support = true
 
 [debugger.interactive]
 transport = "localhost:5678"
-startCommand = ["dap-python", "air_report_web_backend/manage.py"]
+startCommand = ["dap-python", "manage.py"]
 
 [debugger.interactive.integratedAdapter]
 dapTcpAddress = "localhost:5678"
