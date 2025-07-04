@@ -319,18 +319,20 @@ run_database_migrations() {
 # 创建超级用户
 create_superuser() {
     log_info "创建超级用户..."
-    
+    log_info "DEBUG: 使用自定义用户模型 accounts.User"
+
     cd "$PROJECT_ROOT"
     
-    # 检查是否已存在admin用户
-    if python manage.py shell -c "from django.contrib.auth.models import User; print(User.objects.filter(username='admin').exists())" | grep -q "True"; then
+    # 检查是否已存在admin用户 - 使用自定义用户模型
+    if python manage.py shell -c "from django.contrib.auth import get_user_model; User = get_user_model(); print(User.objects.filter(username='admin').exists())" | grep -q "True"; then
         log_warning "超级用户admin已存在，跳过创建"
         return 0
     fi
-    
-    # 创建超级用户
+
+    # 创建超级用户 - 使用自定义用户模型
     python manage.py shell -c "
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
+User = get_user_model()
 if not User.objects.filter(username='admin').exists():
     User.objects.create_superuser('admin', 'admin@example.com', 'admin123')
     print('超级用户admin创建成功')
