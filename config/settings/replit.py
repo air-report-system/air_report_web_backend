@@ -1,5 +1,6 @@
 """
 Replit环境设置
+专为Replit部署优化的Django配置
 """
 import os
 import urllib.parse as urlparse
@@ -14,8 +15,16 @@ from .base import *
 # Replit环境特定设置
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-# Replit主机配置
-ALLOWED_HOSTS = ['*']  # Replit需要允许所有主机
+# Replit主机配置 - 允许Replit域名
+ALLOWED_HOSTS = [
+    '*',  # Replit需要允许所有主机
+    '.replit.co',
+    '.repl.co',
+    '.replit.dev',
+    '.lovableproject.com',
+    'localhost',
+    '127.0.0.1',
+]
 
 # 数据库配置
 # 重要：Replit的免费计划可能会清除SQLite文件
@@ -52,22 +61,49 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# CORS配置 - 允许Replit域名
+# CORS配置 - 允许前后端跨域通信
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    "https://*.replit.co",
+    "https://*.repl.co",
+    "https://*.replit.dev",
+    "https://*.lovableproject.com",
+    "http://localhost:3000",  # 前端开发服务器
+    "http://localhost:8000",  # 后端开发服务器
+]
+
+# CORS头部配置
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # 安全设置
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-replit-dev-key-change-me')
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-replit-dev-key-change-me-in-production')
 
-# CSRF配置（仅用于开发测试）
-if DEBUG:
-    CSRF_TRUSTED_ORIGINS = [
-        'https://*.replit.co',
-        'https://*.repl.co',
-        'https://*.lovableproject.com',  # Lovable平台域名
-        'http://localhost:8000',
-        'http://127.0.0.1:8000'
-    ]
+# CSRF配置
+CSRF_TRUSTED_ORIGINS = [
+    'https://*.replit.co',
+    'https://*.repl.co',
+    'https://*.replit.dev',
+    'https://*.lovableproject.com',
+    'http://localhost:3000',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000'
+]
+
+# 如果是生产环境，禁用CSRF（API模式）
+if not DEBUG:
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = True
 
 # 简化的日志配置
 LOGGING = {
@@ -102,10 +138,42 @@ EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 USE_TZ = True
 TIME_ZONE = 'Asia/Shanghai'
 
+# 静态文件和媒体文件配置（生产环境）
+if not DEBUG:
+    # 使用WhiteNoise处理静态文件
+    MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 # 创建必要的目录
 os.makedirs(BASE_DIR / 'staticfiles', exist_ok=True)
 os.makedirs(BASE_DIR / 'media', exist_ok=True)
 os.makedirs(BASE_DIR / 'static', exist_ok=True)
+
+# 字体和LibreOffice环境配置
+FONTS_DIR = BASE_DIR / 'templates' / 'fonts'
+os.environ.setdefault('FONTCONFIG_PATH', os.path.expanduser('~/.config/fontconfig'))
+os.environ.setdefault('UNO_PATH', '/usr/lib/libreoffice/program')
+os.environ.setdefault('DISPLAY', ':99')
+
+# 文件上传配置
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+
+# API配置
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+}
 
 # 数据持久化警告
 if not DATABASE_URL or 'sqlite' in str(DATABASES['default']['ENGINE']):

@@ -1,0 +1,82 @@
+# Replit配置文件 - Django后端部署
+# 空气质量检测系统后端API
+
+# 运行配置
+run = """
+cd air_report_web_backend && \
+chmod +x scripts/setup_replit.sh && \
+./scripts/setup_replit.sh && \
+python manage.py runserver 0.0.0.0:8000 --settings=config.settings.replit
+"""
+
+# 入口点配置
+entrypoint = "air_report_web_backend/manage.py"
+
+# 模块配置
+modules = ["python-3.12", "nix"]
+
+# 隐藏文件配置
+hidden = [".config", ".pythonlibs", "__pycache__", ".uv"]
+
+# 语言配置
+[languages]
+
+[languages.python3]
+pattern = "**/*.py"
+
+[languages.python3.languageServer]
+start = "pylsp"
+
+# Nix配置 - 用于安装系统依赖
+[nix]
+channel = "stable-24.05"
+
+# 部署配置
+[deployment]
+run = """
+cd air_report_web_backend && \
+chmod +x scripts/setup_replit.sh && \
+./scripts/setup_replit.sh && \
+gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120 --settings=config.settings.replit
+"""
+
+# 环境变量配置
+[env]
+DJANGO_SETTINGS_MODULE = "config.settings.replit"
+PYTHONPATH = "air_report_web_backend"
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+
+# 端口配置
+[[ports]]
+localPort = 8000
+externalPort = 80
+
+# Git配置
+[gitHubImport]
+requiredFiles = [".replit", "air_report_web_backend/pyproject.toml"]
+
+# 调试配置
+[debugger]
+support = true
+
+[debugger.interactive]
+transport = "localhost:5678"
+startCommand = ["dap-python", "air_report_web_backend/manage.py"]
+
+[debugger.interactive.integratedAdapter]
+dapTcpAddress = "localhost:5678"
+
+# 包管理器配置
+[packager]
+language = "python3"
+ignoredPackages = ["unit_tests"]
+
+[packager.features]
+enabledForHosting = false
+packageSearch = true
+guessImports = true
+
+# 对象存储配置（如果需要）
+[objectStorage]
+defaultBucketID = "replit-objstore-default"

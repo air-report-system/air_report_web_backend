@@ -7,6 +7,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from apps.core.views import HealthCheckView, detailed_health_check
 
 
 def api_root(request):
@@ -19,6 +20,8 @@ def api_root(request):
             'api_docs': '/api/docs/',
             'api_redoc': '/api/redoc/',
             'api_schema': '/api/schema/',
+            'health': '/health/',
+            'health_detailed': '/health/detailed/',
             'auth': '/api/v1/auth/',
             'files': '/api/v1/files/',
             'ocr': '/api/v1/ocr/',
@@ -36,6 +39,10 @@ urlpatterns = [
 
     # 管理后台
     path('admin/', admin.site.urls),
+
+    # 健康检查
+    path('health/', HealthCheckView.as_view(), name='health-check'),
+    path('health/detailed/', detailed_health_check, name='health-check-detailed'),
 
     # API文档
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

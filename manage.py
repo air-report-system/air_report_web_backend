@@ -6,7 +6,14 @@ import sys
 
 def main():
     """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.development')
+    # 检测Replit环境并自动设置相应的配置
+    if os.getenv('REPL_ID') or os.getenv('REPLIT_DEV_DOMAIN'):
+        # Replit环境
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.replit')
+    else:
+        # 本地开发环境
+        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.development')
+
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
