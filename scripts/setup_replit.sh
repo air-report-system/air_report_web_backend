@@ -151,14 +151,9 @@ configure_system_dependencies() {
         log_error "DEBUG: fontconfig命令未找到"
     fi
 
-    # 检查虚拟显示
-    if command -v Xvfb &> /dev/null; then
-        available_deps+=("xvfb-run")
-        log_info "DEBUG: Xvfb路径: $(which Xvfb)"
-    else
-        missing_deps+=("xvfb-run")
-        log_error "DEBUG: Xvfb命令未找到"
-    fi
+    # 虚拟显示不再需要 - LibreOffice 7.6+ 支持真正headless模式
+    available_deps+=("headless-mode")
+    log_info "DEBUG: LibreOffice headless模式 - 无需虚拟显示"
 
     # 检查图像处理工具
     if command -v convert &> /dev/null; then

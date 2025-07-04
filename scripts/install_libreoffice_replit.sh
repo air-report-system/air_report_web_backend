@@ -95,16 +95,9 @@ check_nix_dependencies() {
         log_error "DEBUG: fontconfig命令未找到"
     fi
 
-    # 检查虚拟显示
-    log_info "DEBUG: 检查Xvfb..."
-    if command -v Xvfb &> /dev/null; then
-        available_deps+=("xvfb")
-        local xvfb_path=$(which Xvfb)
-        log_info "DEBUG: Xvfb路径: $xvfb_path"
-    else
-        missing_deps+=("xvfb")
-        log_error "DEBUG: Xvfb命令未找到"
-    fi
+    # 虚拟显示不再需要 - 现代LibreOffice支持真正的headless模式
+    log_info "DEBUG: 跳过虚拟显示检查 - LibreOffice 7.6+ 支持真正的headless模式"
+    available_deps+=("headless-mode")
 
     log_info "DEBUG: 可用依赖 (${#available_deps[@]}): ${available_deps[*]}"
     log_info "DEBUG: 缺失依赖 (${#missing_deps[@]}): ${missing_deps[*]}"
@@ -118,7 +111,7 @@ check_nix_dependencies() {
         log_info "  pkgs.dejavu_fonts"
         log_info "  pkgs.liberation_ttf"
         log_info "  pkgs.noto-fonts-cjk-sans"
-        log_info "  pkgs.xvfb-run"
+        log_info "  # pkgs.xvfb-run  # 不再需要 - LibreOffice 7.6+ 支持真正headless"
         log_info "  pkgs.imagemagick"
         log_info "  pkgs.tesseract4"
         log_info "  pkgs.poppler-utils"
@@ -261,7 +254,7 @@ configure_libreoffice() {
 export UNO_PATH="$uno_path"
 export PYTHONPATH="$uno_path:\$PYTHONPATH"
 export OFFICE_HOME="$(dirname "$uno_path")"
-export DISPLAY=:99
+# export DISPLAY=:99  # 不再需要 - LibreOffice支持真正headless模式
 
 # 字体配置
 export FONTCONFIG_PATH=/etc/fonts
