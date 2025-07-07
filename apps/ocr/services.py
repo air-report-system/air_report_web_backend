@@ -214,17 +214,20 @@ class GeminiOCRService(OCRService):
 
         # 设置代理
         use_proxy = getattr(settings, 'USE_PROXY', False)
-        print(f"[DEBUG] GeminiOCRService.__init__: USE_PROXY={use_proxy}")
+        logger.info(f"GeminiOCRService.__init__: USE_PROXY={use_proxy}")
         if use_proxy:
-            self.proxies = {
-                'http': getattr(settings, 'HTTP_PROXY', None),
-                'https': getattr(settings, 'HTTPS_PROXY', None)
-            }
-            print(f"[DEBUG] GeminiOCRService.__init__: 代理已启用 {self.proxies}")
+            http_proxy = getattr(settings, 'HTTP_PROXY', None)
+            https_proxy = getattr(settings, 'HTTPS_PROXY', None)
+            self.proxies = {}
+            if http_proxy:
+                self.proxies['http'] = http_proxy
+            if https_proxy:
+                self.proxies['https'] = https_proxy
+            logger.info(f"GeminiOCRService.__init__: 代理已启用 {self.proxies}")
         else:
-            # 显式设置空代理字典来覆盖环境变量
-            self.proxies = {'http': None, 'https': None}
-            print(f"[DEBUG] GeminiOCRService.__init__: 代理已禁用，设置空代理字典")
+            # 禁用代理
+            self.proxies = None
+            logger.info("GeminiOCRService.__init__: 代理已禁用")
 
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY未设置")
@@ -240,8 +243,15 @@ class GeminiOCRService(OCRService):
             dict: OCR结果
         """
         try:
+            logger.info(f"开始Gemini OCR处理: {image_path}")
+            
+            # 检查网络连接
+            if not self._check_network_connectivity():
+                raise Exception("网络连接不可用")
+            
             # 编码图片
             image_base64 = self.encode_image_to_base64(image_path)
+            logger.info(f"图片编码完成，大小: {len(image_base64)} 字符")
             
             # 构建请求
             url = f"{self.base_url}/v1beta/models/{self.model_name}:generateContent"
@@ -273,11 +283,9 @@ class GeminiOCRService(OCRService):
             }
             
             # 发送请求
-            import os
-            print(f"[DEBUG] GeminiOCRService.process_image: 发送请求到 {url}")
-            print(f"[DEBUG] GeminiOCRService.process_image: 使用代理 {self.proxies}")
-            print(f"[DEBUG] GeminiOCRService.process_image: 环境变量 HTTP_PROXY={os.environ.get('HTTP_PROXY', 'None')}")
-            print(f"[DEBUG] GeminiOCRService.process_image: 环境变量 HTTPS_PROXY={os.environ.get('HTTPS_PROXY', 'None')}")
+            logger.info(f"发送请求到 {url}")
+            logger.info(f"使用代理: {self.proxies}")
+            
             response = requests.post(
                 url,
                 headers=headers,
@@ -286,14 +294,18 @@ class GeminiOCRService(OCRService):
                 proxies=self.proxies
             )
             
+            logger.info(f"请求响应状态码: {response.status_code}")
+            
             if response.status_code == 200:
                 response_data = response.json()
+                logger.info("API响应成功，解析结果...")
 
                 # 提取生成的文本
                 if 'candidates' in response_data and response_data['candidates']:
                     candidate = response_data['candidates'][0]
                     if 'content' in candidate and 'parts' in candidate['content']:
                         generated_text = candidate['content']['parts'][0]['text']
+                        logger.info(f"生成的文本: {generated_text[:200]}...")
 
                         # 解析OCR结果
                         result = self.parse_ocr_response(generated_text)
@@ -302,15 +314,40 @@ class GeminiOCRService(OCRService):
                         logger.info(f"Gemini OCR处理成功: {image_path}")
                         return result
                 
+                logger.error(f"Gemini响应格式异常: {response_data}")
                 raise Exception("Gemini响应格式异常")
             else:
                 error_msg = f"Gemini API请求失败: {response.status_code} - {response.text}"
                 logger.error(error_msg)
                 raise Exception(error_msg)
                 
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"网络连接错误: {e}")
+            raise Exception(f"网络连接错误: {e}")
+        except requests.exceptions.Timeout as e:
+            logger.error(f"请求超时: {e}")
+            raise Exception(f"请求超时: {e}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"请求异常: {e}")
+            raise Exception(f"请求异常: {e}")
         except Exception as e:
             logger.error(f"Gemini OCR处理失败: {e}")
             raise e
+    
+    def _check_network_connectivity(self) -> bool:
+        """检查网络连接性"""
+        try:
+            # 尝试连接到Google的DNS服务器
+            import socket
+            socket.create_connection(("8.8.8.8", 53), timeout=5)
+            return True
+        except OSError:
+            try:
+                # 尝试连接到备用DNS服务器
+                socket.create_connection(("1.1.1.1", 53), timeout=5)
+                return True
+            except OSError:
+                return False
     
     def build_ocr_prompt(self) -> str:
         """
@@ -373,17 +410,20 @@ class OpenAIOCRService(OCRService):
 
         # 设置代理
         use_proxy = getattr(settings, 'USE_PROXY', False)
-        print(f"[DEBUG] OpenAIOCRService.__init__: USE_PROXY={use_proxy}")
+        logger.info(f"OpenAIOCRService.__init__: USE_PROXY={use_proxy}")
         if use_proxy:
-            self.proxies = {
-                'http': getattr(settings, 'HTTP_PROXY', None),
-                'https': getattr(settings, 'HTTPS_PROXY', None)
-            }
-            print(f"[DEBUG] OpenAIOCRService.__init__: 代理已启用 {self.proxies}")
+            http_proxy = getattr(settings, 'HTTP_PROXY', None)
+            https_proxy = getattr(settings, 'HTTPS_PROXY', None)
+            self.proxies = {}
+            if http_proxy:
+                self.proxies['http'] = http_proxy
+            if https_proxy:
+                self.proxies['https'] = https_proxy
+            logger.info(f"OpenAIOCRService.__init__: 代理已启用 {self.proxies}")
         else:
-            # 显式设置空代理字典来覆盖环境变量
-            self.proxies = {'http': None, 'https': None}
-            print(f"[DEBUG] OpenAIOCRService.__init__: 代理已禁用，设置空代理字典")
+            # 禁用代理
+            self.proxies = None
+            logger.info("OpenAIOCRService.__init__: 代理已禁用")
 
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY未设置")

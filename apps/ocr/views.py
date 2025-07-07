@@ -1,6 +1,7 @@
 """
 OCR处理视图
 """
+import logging
 from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -25,6 +26,8 @@ from .serializers import (
 )
 from apps.files.models import UploadedFile
 from apps.files.serializers import UploadedFileSerializer
+
+logger = logging.getLogger(__name__)
 
 
 class OCRResultViewSet(viewsets.ModelViewSet):
@@ -217,6 +220,8 @@ class UploadAndProcessView(APIView):
     )
     def post(self, request):
         """上传图片并处理"""
+        logger.info(f"开始上传和处理图片，用户: {request.user.id}")
+        
         serializer = ImageUploadAndProcessSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -242,6 +247,7 @@ class UploadAndProcessView(APIView):
                     if existing_file:
                         # 使用现有文件
                         uploaded_file = existing_file
+                        logger.info(f"使用现有文件: {uploaded_file.id}")
                     else:
                         # 创建新文件记录
                         uploaded_file = UploadedFile.objects.create(
@@ -249,6 +255,7 @@ class UploadAndProcessView(APIView):
                             original_name=image.name,
                             created_by=request.user
                         )
+                        logger.info(f"创建新文件: {uploaded_file.id}")
 
                     # 检查是否已有处理中的OCR任务
                     existing_ocr = OCRResult.objects.filter(
@@ -257,6 +264,7 @@ class UploadAndProcessView(APIView):
                     ).first()
 
                     if existing_ocr:
+                        logger.info(f"文件已有处理中的OCR任务: {existing_ocr.id}")
                         return Response({
                             'message': '该文件已有处理中的OCR任务',
                             'file_id': uploaded_file.id,
@@ -271,30 +279,74 @@ class UploadAndProcessView(APIView):
                         ocr_attempts=ocr_count if use_multi_ocr else 1,
                         created_by=request.user
                     )
+                    logger.info(f"创建OCR结果记录: {ocr_result.id}")
 
-                # 调用异步OCR处理任务
-                from .tasks import process_image_ocr
+                # 检查是否在同步模式下运行（如Replit）
+                from django.conf import settings
+                if getattr(settings, 'CELERY_TASK_ALWAYS_EAGER', False):
+                    # 同步模式：直接处理
+                    logger.info("使用同步模式处理OCR")
+                    try:
+                        from .tasks import process_image_ocr_sync
+                        result = process_image_ocr_sync(
+                            uploaded_file.id,
+                            request.user.id,
+                            use_multi_ocr,
+                            ocr_count
+                        )
+                        
+                        # 获取更新后的OCR结果
+                        ocr_result.refresh_from_db()
+                        
+                        return Response({
+                            'message': '文件上传成功，OCR处理完成',
+                            'file_id': uploaded_file.id,
+                            'ocr_result_id': ocr_result.id,
+                            'status': ocr_result.status,
+                            'phone': ocr_result.phone,
+                            'processing_result': result
+                        }, status=status.HTTP_200_OK)
+                        
+                    except Exception as sync_error:
+                        logger.error(f"同步OCR处理失败: {sync_error}")
+                        # 更新OCR结果状态
+                        ocr_result.status = 'failed'
+                        ocr_result.error_message = str(sync_error)
+                        ocr_result.save()
+                        
+                        return Response({
+                            'error': f'OCR处理失败: {str(sync_error)}',
+                            'file_id': uploaded_file.id,
+                            'ocr_result_id': ocr_result.id,
+                            'status': 'failed'
+                        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                else:
+                    # 异步模式：使用Celery
+                    logger.info("使用异步模式处理OCR")
+                    from .tasks import process_image_ocr
 
-                task = process_image_ocr.delay(
-                    uploaded_file.id,
-                    request.user.id,
-                    use_multi_ocr,
-                    ocr_count
-                )
+                    task = process_image_ocr.delay(
+                        uploaded_file.id,
+                        request.user.id,
+                        use_multi_ocr,
+                        ocr_count
+                    )
 
-                return Response({
-                    'message': '文件上传成功，OCR处理已开始',
-                    'file_id': uploaded_file.id,
-                    'ocr_result_id': ocr_result.id,
-                    'task_id': str(task.id),
-                    'status': 'pending'
-                }, status=status.HTTP_202_ACCEPTED)
+                    return Response({
+                        'message': '文件上传成功，OCR处理已开始',
+                        'file_id': uploaded_file.id,
+                        'ocr_result_id': ocr_result.id,
+                        'task_id': str(task.id),
+                        'status': 'pending'
+                    }, status=status.HTTP_202_ACCEPTED)
 
             except Exception as e:
+                logger.error(f"上传和处理失败: {str(e)}", exc_info=True)
                 return Response({
                     'error': f'上传和处理失败: {str(e)}'
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        logger.error(f"序列化器验证失败: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

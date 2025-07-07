@@ -5,12 +5,15 @@ import os
 import json
 import time
 import hashlib
+import logging
 from datetime import datetime
 from celery import shared_task
 from django.utils import timezone
 from django.conf import settings
 from .models import OCRResult, ContactInfo
 from apps.files.models import UploadedFile
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3)
@@ -388,3 +391,108 @@ def cleanup_failed_ocr_results():
     failed_results.delete()
     
     return f"清理了 {count} 个失败的OCR结果"
+
+
+def process_image_ocr_sync(file_id, user_id, use_multi_ocr=False, ocr_count=3):
+    """
+    同步处理图片OCR任务（用于Replit等环境）
+    
+    Args:
+        file_id: 文件ID
+        user_id: 用户ID
+        use_multi_ocr: 是否使用多重OCR
+        ocr_count: OCR次数
+    
+    Returns:
+        dict: 处理结果
+    """
+    try:
+        logger.info(f"开始同步OCR处理: file_id={file_id}, user_id={user_id}")
+        
+        # 获取文件和OCR结果记录
+        file_obj = UploadedFile.objects.get(id=file_id)
+        ocr_result = OCRResult.objects.filter(file=file_obj).first()
+        
+        if not ocr_result:
+            ocr_result = OCRResult.objects.create(
+                file=file_obj,
+                status='processing',
+                ocr_attempts=ocr_count if use_multi_ocr else 1,
+                created_by_id=user_id
+            )
+        
+        # 更新处理状态
+        ocr_result.status = 'processing'
+        ocr_result.processing_started_at = timezone.now()
+        ocr_result.save()
+        
+        # 检查文件是否存在
+        if not file_obj.file or not os.path.exists(file_obj.file.path):
+            raise Exception("文件不存在")
+        
+        logger.info(f"文件路径: {file_obj.file.path}")
+        
+        # 执行OCR处理
+        if use_multi_ocr:
+            logger.info("使用多重OCR处理")
+            result = enhanced_multi_ocr_process(file_obj.file.path, ocr_count)
+        else:
+            logger.info("使用单次OCR处理")
+            result = single_ocr_process(file_obj.file.path)
+        
+        logger.info(f"OCR处理结果: {result}")
+        
+        # 更新OCR结果
+        ocr_result.status = 'completed'
+        ocr_result.phone = result.get('phone', '')
+        ocr_result.date = result.get('date', '')
+        ocr_result.temperature = result.get('temperature', '')
+        ocr_result.humidity = result.get('humidity', '')
+        ocr_result.check_type = result.get('check_type', 'initial')
+        ocr_result.points_data = result.get('points_data', {})
+        ocr_result.raw_response = result.get('raw_response', '')
+        ocr_result.confidence_score = result.get('confidence_score', 0.0)
+        ocr_result.has_conflicts = result.get('has_conflicts', False)
+        ocr_result.conflict_details = result.get('conflict_details', {})
+        ocr_result.processing_completed_at = timezone.now()
+        ocr_result.save()
+        
+        logger.info(f"OCR结果已更新: {ocr_result.id}")
+        
+        # 创建或更新联系人信息
+        try:
+            if ocr_result.phone:
+                create_or_update_contact_info_enhanced(ocr_result)
+                logger.info("联系人信息已创建/更新")
+        except Exception as contact_error:
+            logger.warning(f"联系人信息创建失败: {contact_error}")
+            # 不影响主要的OCR处理流程
+        
+        # 标记文件为已处理
+        file_obj.is_processed = True
+        file_obj.save()
+        
+        return {
+            'status': 'success',
+            'ocr_result_id': ocr_result.id,
+            'phone': ocr_result.phone,
+            'date': ocr_result.date,
+            'check_type': ocr_result.check_type,
+            'points_count': len(ocr_result.points_data) if ocr_result.points_data else 0
+        }
+        
+    except Exception as e:
+        logger.error(f"同步OCR处理失败: {str(e)}", exc_info=True)
+        
+        # 更新错误状态
+        if 'ocr_result' in locals():
+            ocr_result.status = 'failed'
+            ocr_result.error_message = str(e)
+            ocr_result.processing_completed_at = timezone.now()
+            ocr_result.save()
+        
+        return {
+            'status': 'error',
+            'error': str(e),
+            'ocr_result_id': ocr_result.id if 'ocr_result' in locals() else None
+        }
