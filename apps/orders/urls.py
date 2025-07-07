@@ -13,6 +13,8 @@ urlpatterns = [
     # 订单信息处理
     path('process/', ProcessOrderInfoView.as_view(), name='process-order-info'),
     path('process', ProcessOrderInfoView.as_view(), name='process-order-info-no-slash'),
+    path('process-multiple/', ProcessMultipleOrdersView.as_view(), name='process-multiple-orders'),
+    path('process-multiple', ProcessMultipleOrdersView.as_view(), name='process-multiple-orders-no-slash'),
     path('update/', UpdateOrderDataView.as_view(), name='update-order-data'),
     path('update', UpdateOrderDataView.as_view(), name='update-order-data-no-slash'),
     path('submit/', SubmitOrderView.as_view(), name='submit-order'),

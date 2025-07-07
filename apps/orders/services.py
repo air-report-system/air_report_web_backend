@@ -34,7 +34,7 @@ def timeout_handler(timeout_seconds):
 
             if thread.is_alive():
                 # 超时了，但无法强制终止线程
-                raise TimeoutError(f"Gemini API调用超时 ({timeout_seconds}秒)")
+                raise TimeoutError(f"API调用超时 ({timeout_seconds}秒)")
 
             if exception[0] is not None:
                 raise exception[0]
@@ -136,6 +136,21 @@ class OrderInfoProcessor:
             print(f"AI API调用失败，使用本地处理: {str(e)}")
             # 如果AI API失败，使用本地处理方式
             return self._local_format_order_message(order_text)
+    
+    @timeout_handler(getattr(settings, 'API_TIMEOUT_SECONDS', 30))
+    def format_multiple_orders(self, order_text: str) -> List[str]:
+        """
+        处理多个订单的信息，返回多行CSV数据
+        """
+        try:
+            if self.use_openai:
+                return self._format_multiple_with_openai(order_text)
+            else:
+                return self._format_multiple_with_gemini(order_text)
+        except Exception as e:
+            print(f"AI API调用失败，使用本地处理: {str(e)}")
+            # 如果AI API失败，使用本地处理方式
+            return [self._local_format_order_message(order_text)]
     
     def _format_with_openai(self, order_text: str) -> str:
         """使用OpenAI兼容接口格式化订单信息"""
@@ -256,6 +271,146 @@ class OrderInfoProcessor:
         formatted_csv = self._post_process_csv(formatted_csv, order_text)
 
         return formatted_csv
+    
+    def _format_multiple_with_openai(self, order_text: str) -> List[str]:
+        """使用OpenAI兼容接口格式化多个订单信息"""
+        # 获取当前年份
+        current_year = datetime.now().year
+        
+        prompt = f"""
+        请分析以下文本中的所有订单信息，并提取关键信息整理成CSV格式。
+        每个订单一行，格式为：客户姓名,客户电话,客户地址,商品类型(国标/母婴),成交金额,面积,履约时间,CMA点位数量,备注赠品
+
+        注意事项：
+        1. 识别文本中的所有订单（通常以"业务类型"开头或包含客户信息的段落）
+        2. 每个订单输出一行CSV数据
+        3. 如果某个字段没有信息，请留空
+        4. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
+        5. 成交金额只保留数字，不要包含"元"等单位
+        6. 面积只保留数字，不要包含"平方米"等单位
+        7. 商品类型只能是"国标"或"母婴"
+        8. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
+        9. 备注赠品格式：{{品类:数量}}，多个赠品用分号分隔在同一个大括号内，如：{{除醛宝:2;炭包:1}}
+           - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
+           - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
+           - 重要：所有赠品必须在一个大括号内，用分号(;)分隔，不要用多个大括号
+           - 正确示例：{{除醛宝:15;炭包:3}}
+           - 错误示例：{{除醛宝:15}};{{炭包:3}}
+        10. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
+        11. 只输出CSV格式的数据行，不要包含任何其他说明文字
+        12. 不要包含CSV的标题行
+        13. 每个订单一行，多个订单用换行符分隔
+
+        订单信息内容：
+        {order_text}
+
+        请输出所有识别到的订单的CSV数据，每个订单一行。
+        """
+        
+        # 构建请求
+        url = f"{self.base_url}/chat/completions"
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}'
+        }
+        
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 2000
+        }
+        
+        # 发送请求
+        print(f"正在调用OpenAI兼容API处理多个订单信息...")
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=getattr(settings, 'API_TIMEOUT_SECONDS', 30),
+            proxies=self.proxies
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            if 'choices' in response_data and response_data['choices']:
+                formatted_csv = response_data['choices'][0]['message']['content'].strip()
+                print(f"OpenAI API响应: {formatted_csv}")
+                
+                # 分割为多行并处理每一行
+                lines = formatted_csv.split('\n')
+                processed_lines = []
+                for line in lines:
+                    line = line.strip()
+                    if line:  # 跳过空行
+                        # 后处理每一行
+                        processed_line = self._post_process_csv(line, order_text)
+                        processed_lines.append(processed_line)
+                
+                return processed_lines
+            else:
+                raise Exception("OpenAI API响应格式异常")
+        else:
+            error_msg = f"OpenAI API请求失败: {response.status_code} - {response.text}"
+            raise Exception(error_msg)
+    
+    def _format_multiple_with_gemini(self, order_text: str) -> List[str]:
+        """使用Gemini API格式化多个订单信息"""
+        # 获取当前年份
+        current_year = datetime.now().year
+
+        prompt = f"""
+        请分析以下文本中的所有订单信息，并提取关键信息整理成CSV格式。
+        每个订单一行，格式为：客户姓名,客户电话,客户地址,商品类型(国标/母婴),成交金额,面积,履约时间,CMA点位数量,备注赠品
+
+        注意事项：
+        1. 识别文本中的所有订单（通常以"业务类型"开头或包含客户信息的段落）
+        2. 每个订单输出一行CSV数据
+        3. 如果某个字段没有信息，请留空
+        4. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
+        5. 成交金额只保留数字，不要包含"元"等单位
+        6. 面积只保留数字，不要包含"平方米"等单位
+        7. 商品类型只能是"国标"或"母婴"
+        8. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
+        9. 备注赠品格式：{{品类:数量}}，多个赠品用分号分隔在同一个大括号内，如：{{除醛宝:2;炭包:1}}
+           - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
+           - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
+           - 重要：所有赠品必须在一个大括号内，用分号(;)分隔，不要用多个大括号
+           - 正确示例：{{除醛宝:15;炭包:3}}
+           - 错误示例：{{除醛宝:15}};{{炭包:3}}
+        10. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
+        11. 只输出CSV格式的数据行，不要包含任何其他说明文字
+        12. 不要包含CSV的标题行
+        13. 每个订单一行，多个订单用换行符分隔
+
+        订单信息内容：
+        {order_text}
+
+        请输出所有识别到的订单的CSV数据，每个订单一行。
+        """
+
+        print(f"正在调用Gemini API处理多个订单信息...")
+        response = self.model.generate_content(prompt)
+        formatted_csv = response.text.strip()
+        print(f"Gemini API响应: {formatted_csv}")
+
+        # 分割为多行并处理每一行
+        lines = formatted_csv.split('\n')
+        processed_lines = []
+        for line in lines:
+            line = line.strip()
+            if line:  # 跳过空行
+                # 后处理每一行
+                processed_line = self._post_process_csv(line, order_text)
+                processed_lines.append(processed_line)
+
+        return processed_lines
     
     def _post_process_csv(self, csv_line: str, original_text: str) -> str:
         """
@@ -393,6 +548,44 @@ class OrderInfoProcessor:
             return gift_string
         
         return ''
+    
+    def parse_multiple_csv_to_order_data(self, csv_lines: List[str]) -> Dict[str, Any]:
+        """
+        将多行CSV内容解析为多个订单数据格式
+        """
+        if not csv_lines:
+            return {"order_data_list": [], "validation_errors": []}
+        
+        order_data_list = []
+        all_validation_errors = []
+        
+        for i, csv_line in enumerate(csv_lines):
+            if not csv_line.strip():
+                continue
+                
+            # 解析单个订单
+            single_result = self.parse_csv_to_order_data(csv_line)
+            
+            # 添加订单索引信息
+            order_data = single_result["order_data"]
+            order_data["_order_index"] = i + 1  # 从1开始编号
+            
+            order_data_list.append({
+                "order_data": order_data,
+                "validation_errors": single_result["validation_errors"],
+                "csv_content": single_result.get("csv_content", csv_line)
+            })
+            
+            # 收集所有验证错误
+            if single_result["validation_errors"]:
+                prefixed_errors = [f"订单{i+1}: {error}" for error in single_result["validation_errors"]]
+                all_validation_errors.extend(prefixed_errors)
+        
+        return {
+            "order_data_list": order_data_list,
+            "validation_errors": all_validation_errors,
+            "total_orders": len(order_data_list)
+        }
     
     def parse_csv_to_order_data(self, csv_content: str) -> Dict[str, Any]:
         """

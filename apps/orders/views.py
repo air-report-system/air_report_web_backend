@@ -62,6 +62,48 @@ class ProcessOrderInfoView(APIView):
             )
 
 
+class ProcessMultipleOrdersView(APIView):
+    """处理多个订单信息视图"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        """处理多个订单信息并返回格式化结果"""
+        serializer = OrderInfoInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        order_text = serializer.validated_data['order_text']
+        
+        try:
+            # 使用订单信息处理器格式化多个订单
+            processor = OrderInfoProcessor()
+            formatted_csv_lines = processor.format_multiple_orders(order_text)
+            
+            # 解析多个CSV为订单数据
+            parse_result = processor.parse_multiple_csv_to_order_data(formatted_csv_lines)
+
+            # 为每个订单检查重复记录
+            for order_item in parse_result["order_data_list"]:
+                duplicate_result = processor.check_for_duplicates(order_item["order_data"])
+                order_item["duplicate_check"] = duplicate_result
+
+            response_data = {
+                "formatted_csv_lines": formatted_csv_lines,
+                "order_data_list": parse_result["order_data_list"],
+                "validation_errors": parse_result["validation_errors"],
+                "total_orders": parse_result["total_orders"]
+            }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"处理多个订单信息失败: {e}")
+            return Response(
+                {"error": f"处理失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class UpdateOrderDataView(APIView):
     """更新订单数据视图"""
     permission_classes = [permissions.IsAuthenticated]
