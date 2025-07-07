@@ -239,7 +239,7 @@ class UploadAndProcessView(APIView):
                     file_hash = hashlib.md5(file_content).hexdigest()
                     image.seek(0)  # 重置文件指针
 
-                    # 检查是否已存在相同文件
+                    # 检查当前用户是否已存在相同文件
                     existing_file = UploadedFile.objects.filter(
                         hash_md5=file_hash,
                         created_by=request.user
@@ -250,17 +250,43 @@ class UploadAndProcessView(APIView):
                         uploaded_file = existing_file
                         logger.info(f"使用现有文件: {uploaded_file.id}")
                     else:
-                        # 如果存在记录但物理文件不存在，删除旧记录
+                        # 如果当前用户存在记录但物理文件不存在，删除旧记录
                         if existing_file:
-                            logger.warning(f"现有文件 {existing_file.id} 的物理文件不存在，删除旧记录并创建新文件")
+                            logger.warning(f"现有文件 {existing_file.id} 的物理文件不存在，删除旧记录")
                             existing_file.delete()
 
-                        # 创建新文件记录
-                        uploaded_file = UploadedFile.objects.create(
-                            file=image,
-                            original_name=image.name,
-                            created_by=request.user
-                        )
+                        # 检查是否有其他用户的相同哈希文件存在
+                        other_existing_file = UploadedFile.objects.filter(
+                            hash_md5=file_hash
+                        ).exclude(created_by=request.user).first()
+
+                        if other_existing_file:
+                            # 如果其他用户有相同文件，为避免哈希冲突，我们重新计算哈希（加上用户ID）
+                            import time
+                            unique_hash = hashlib.md5(
+                                f"{file_hash}_{request.user.id}_{int(time.time())}".encode()
+                            ).hexdigest()
+                            logger.info(f"检测到哈希冲突，使用唯一哈希: {unique_hash}")
+
+                            # 手动创建文件记录，避免自动哈希计算
+                            uploaded_file = UploadedFile(
+                                file=image,
+                                original_name=image.name,
+                                created_by=request.user,
+                                hash_md5=unique_hash,
+                                file_size=image.size,
+                                file_type=image.content_type or 'image/jpeg',
+                                mime_type=image.content_type or 'image/jpeg'
+                            )
+                            uploaded_file.save()
+                        else:
+                            # 创建新文件记录
+                            uploaded_file = UploadedFile.objects.create(
+                                file=image,
+                                original_name=image.name,
+                                created_by=request.user
+                            )
+
                         logger.info(f"创建新文件: {uploaded_file.id}")
 
                     # 检查是否已有处理中的OCR任务
