@@ -2,6 +2,7 @@
 OCR处理视图
 """
 import logging
+import os
 from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -336,7 +337,6 @@ class UploadAndProcessView(APIView):
                                 logger.info("Gemini API 处理成功")
                             finally:
                                 # 清理临时文件
-                                import os
                                 if os.path.exists(temp_image_path):
                                     os.unlink(temp_image_path)
                             
@@ -422,7 +422,6 @@ class TestOCRView(APIView):
             try:
                 # 临时保存图片
                 import tempfile
-                import os
 
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
                     for chunk in image.chunks():
