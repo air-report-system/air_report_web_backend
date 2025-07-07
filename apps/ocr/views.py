@@ -244,12 +244,14 @@ class UploadAndProcessView(APIView):
                         created_by=request.user
                     ).first()
 
-                    if existing_file:
-                        # 使用现有文件
+                    if existing_file and existing_file.file and os.path.exists(existing_file.file.path):
+                        # 使用现有文件（仅当物理文件存在时）
                         uploaded_file = existing_file
                         logger.info(f"使用现有文件: {uploaded_file.id}")
                     else:
-                        # 创建新文件记录
+                        # 创建新文件记录（如果没有文件或物理文件不存在）
+                        if existing_file:
+                            logger.warning(f"现有文件 {existing_file.id} 的物理文件不存在，创建新文件")
                         uploaded_file = UploadedFile.objects.create(
                             file=image,
                             original_name=image.name,
@@ -318,10 +320,25 @@ class UploadAndProcessView(APIView):
                         logger.info("尝试降级到 Gemini API")
                         try:
                             from .services import GeminiOCRService
-                            from .tasks import single_ocr_process_with_service
+                            import tempfile
                             
                             gemini_service = GeminiOCRService()
-                            fallback_result = single_ocr_process_with_service(uploaded_file.file.path, gemini_service)
+                            
+                            # 创建临时文件用于处理
+                            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                                image.seek(0)  # 重置文件指针
+                                for chunk in image.chunks():
+                                    temp_file.write(chunk)
+                                temp_image_path = temp_file.name
+                            
+                            try:
+                                fallback_result = gemini_service.process_image(temp_image_path)
+                                logger.info("Gemini API 处理成功")
+                            finally:
+                                # 清理临时文件
+                                import os
+                                if os.path.exists(temp_image_path):
+                                    os.unlink(temp_image_path)
                             
                             # 更新OCR结果
                             ocr_result.status = 'completed'
