@@ -16,6 +16,7 @@ from rest_framework import status
 class HealthCheckView(APIView):
     """健康检查视图"""
     permission_classes = []
+    authentication_classes = []
 
     def get(self, request):
         """健康检查端点"""

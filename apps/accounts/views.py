@@ -30,6 +30,7 @@ class UserViewSet(viewsets.ModelViewSet):
 class LoginView(APIView):
     """用户登录视图"""
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
