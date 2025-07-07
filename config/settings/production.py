@@ -44,7 +44,7 @@ CSRF_COOKIE_SECURE = True
 
 # 生产环境CORS设置
 CORS_ALLOWED_ORIGINS = [
-    origin.strip() for origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
+    origin.strip() for origin in os.getenv('CORS_ALLOWED_ORIGINS', 'https://alicee.me,https://*.alicee.me').split(',')
     if origin.strip()
 ]
 

@@ -17,7 +17,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-change-me-in-production')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,alicee.me,*.alicee.me').split(',')
 
 # Application definition
 DJANGO_APPS = [
@@ -168,6 +168,8 @@ SPECTACULAR_SETTINGS = {
 
 # CORS配置
 CORS_ALLOWED_ORIGINS = [
+    "https://alicee.me",
+    "https://*.alicee.me",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
@@ -176,6 +178,8 @@ CORS_ALLOW_CREDENTIALS = True
 
 # CSRF设置 - 对API路径豁免CSRF检查
 CSRF_TRUSTED_ORIGINS = [
+    "https://alicee.me",
+    "https://*.alicee.me",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
