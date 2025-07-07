@@ -36,7 +36,7 @@ class WechatMessageProcessor:
         3. 成交金额只保留数字，不要包含"元"等单位
         4. 面积只保留数字，不要包含"平方米"等单位
         5. 商品类型只能是"国标"或"母婴"
-        6. 备注赠品格式：{{品类:数量}}，多个赠品用逗号分隔，如：{{除醛宝:2,炭包:1}}
+        6. 备注赠品格式：{{品类:数量}}，多个赠品用分号分隔，如：{{除醛宝:2;炭包:1}}
         7. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
 
         微信消息内容：
@@ -191,7 +191,7 @@ class WechatMessageProcessor:
             gift_strings = []
             for gift_type, quantity in extracted_gifts.items():
                 gift_strings.append(f"{gift_type}:{quantity}")
-            return "{" + ",".join(gift_strings) + "}"
+            return "{" + ";".join(gift_strings) + "}"
         else:
             return ""
     
@@ -444,15 +444,15 @@ class CsvDataProcessor:
         if not gift_notes:
             return True  # 空值是允许的
 
-        # 检查基本格式：{品类:数量,品类:数量}
-        pattern = r'^\{([^:]+:\d+(?:,[^:]+:\d+)*)\}$'
+        # 检查基本格式：{品类:数量;品类:数量}
+        pattern = r'^\{([^:]+:\d+(?:;[^:]+:\d+)*)\}$'
         if not re.match(pattern, gift_notes):
             return False
 
         # 检查品类是否在允许的范围内
         allowed_gifts = ["除醛宝", "炭包", "除醛机", "除醛喷雾"]
         content = gift_notes[1:-1]  # 去掉大括号
-        items = content.split(',')
+        items = content.split(';')
 
         for item in items:
             if ':' not in item:

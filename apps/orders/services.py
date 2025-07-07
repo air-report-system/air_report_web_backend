@@ -153,10 +153,12 @@ class OrderInfoProcessor:
         4. 面积只保留数字，不要包含"平方米"等单位
         5. 商品类型只能是"国标"或"母婴"
         6. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
-        7. 备注赠品格式：{{品类:数量}}，多个赠品用逗号分隔，如：{{除醛宝:2,炭包:1}}
+        7. 备注赠品格式：{{品类:数量}}，多个赠品用分号分隔在同一个大括号内，如：{{除醛宝:2;炭包:1}}
            - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
            - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
-           - 注意：一定要是双引号引住大括号，不然会被csv认为是多个字段
+           - 重要：所有赠品必须在一个大括号内，用分号(;)分隔，不要用多个大括号
+           - 正确示例：{{除醛宝:15;炭包:3}}
+           - 错误示例：{{除醛宝:15}};{{炭包:3}}
         8. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
         9. 只输出CSV格式的一行数据，不要包含任何其他说明文字
         10. 不要包含CSV的标题行
@@ -229,10 +231,12 @@ class OrderInfoProcessor:
         4. 面积只保留数字，不要包含"平方米"等单位
         5. 商品类型只能是"国标"或"母婴"
         6. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
-        7. 备注赠品格式：{{品类:数量}}，多个赠品用逗号分隔，如：{{除醛宝:2,炭包:1}}
+        7. 备注赠品格式：{{品类:数量}}，多个赠品用分号分隔在同一个大括号内，如：{{除醛宝:2;炭包:1}}
            - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
            - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
-           - 注意：一定要是双引号引住大括号，不然会被csv认为是多个字段
+           - 重要：所有赠品必须在一个大括号内，用分号(;)分隔，不要用多个大括号
+           - 正确示例：{{除醛宝:15;炭包:3}}
+           - 错误示例：{{除醛宝:15}};{{炭包:3}}
         8. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
         9. 只输出CSV格式的一行数据，不要包含任何其他说明文字
         10. 不要包含CSV的标题行
@@ -258,29 +262,55 @@ class OrderInfoProcessor:
         后处理CSV行，提取CMA点位数量和备注赠品
         复用GUI项目的相关逻辑
         """
-        # 解析CSV行
-        reader = csv.reader([csv_line])
-        row = next(reader)
-        
-        if len(row) < 9:
-            # 补齐列数
-            row.extend([''] * (9 - len(row)))
-        
-        # 提取CMA点位数量
-        cma_points = self._extract_cma_points(original_text)
-        if cma_points:
-            row[7] = cma_points
-        
-        # 提取备注赠品信息
-        gift_notes = self._extract_gift_notes(original_text)
-        if gift_notes:
-            row[8] = gift_notes
-        
-        # 重新生成CSV行
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(row)
-        return output.getvalue().strip()
+        try:
+            # 解析CSV行 - 处理可能的字段分割问题
+            reader = csv.reader([csv_line])
+            row = next(reader)
+            
+            # 如果解析后字段数量超过9个，说明备注赠品字段被错误分割了
+            if len(row) > 9:
+                print(f"检测到字段分割问题，原始字段数: {len(row)}")
+                print(f"原始行: {row}")
+                
+                # 重新组合被分割的备注赠品字段
+                # 前8个字段保持不变，后面的字段都合并为备注赠品
+                new_row = row[:8]  # 前8个字段
+                if len(row) > 8:
+                    # 将从第9个字段开始的所有字段合并为一个备注赠品字段
+                    gift_field = ','.join(row[8:])
+                    new_row.append(gift_field)
+                else:
+                    new_row.append('')
+                row = new_row
+                print(f"修复后的字段: {row}")
+            
+            # 确保至少有9个字段
+            if len(row) < 9:
+                # 补齐列数
+                row.extend([''] * (9 - len(row)))
+            
+            # 提取CMA点位数量
+            cma_points = self._extract_cma_points(original_text)
+            if cma_points:
+                row[7] = cma_points
+            
+            # 提取备注赠品信息
+            gift_notes = self._extract_gift_notes(original_text)
+            if gift_notes:
+                row[8] = gift_notes
+            
+            # 重新生成CSV行
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(row)
+            result = output.getvalue().strip()
+            print(f"最终CSV行: {result}")
+            return result
+            
+        except Exception as e:
+            print(f"CSV后处理失败: {e}")
+            # 如果解析失败，直接返回原始行
+            return csv_line
     
     def _extract_cma_points(self, text: str) -> str:
         """提取CMA点位数量"""
@@ -304,12 +334,30 @@ class OrderInfoProcessor:
         """提取备注赠品信息"""
         gifts = {}
         
-        # 赠品提取模式
+        # 更精确的赠品提取模式 - 避免匹配电话号码等无关数字
         gift_patterns = {
-            '除醛宝': [r'除醛宝.*?(\d+)', r'小绿罐.*?(\d+)', r'(\d+).*?除醛宝', r'(\d+).*?小绿罐'],
-            '炭包': [r'炭包.*?(\d+)', r'(\d+).*?炭包'],
-            '除醛机': [r'除醛机.*?(\d+)', r'除醛仪.*?(\d+)', r'(\d+).*?除醛机', r'(\d+).*?除醛仪'],
-            '除醛喷雾': [r'除醛喷雾.*?(\d+)', r'喷雾.*?(\d+)', r'(\d+).*?除醛喷雾', r'(\d+).*?喷雾']
+            '除醛宝': [
+                r'除醛宝[\s：:]*(\d+)[\s个台]',  # 除醛宝15个
+                r'小绿罐[\s：:]*(\d+)[\s个台]',  # 小绿罐15个
+                r'(\d+)[\s个台]*除醛宝',        # 15个除醛宝
+                r'(\d+)[\s个台]*小绿罐'         # 15个小绿罐
+            ],
+            '炭包': [
+                r'炭包[\s：:]*(\d+)[\s个台]',    # 炭包3个
+                r'(\d+)[\s个台]*炭包'           # 3个炭包
+            ],
+            '除醛机': [
+                r'除醛机[\s：:]*(\d+)[\s个台]',  # 除醛机1台
+                r'除醛仪[\s：:]*(\d+)[\s个台]',  # 除醛仪1台
+                r'(\d+)[\s个台]*除醛机',        # 1台除醛机
+                r'(\d+)[\s个台]*除醛仪'         # 1台除醛仪
+            ],
+            '除醛喷雾': [
+                r'除醛喷雾[\s：:]*(\d+)[\s个台]', # 除醛喷雾2个
+                r'喷雾[\s：:]*(\d+)[\s个台]',     # 喷雾2个
+                r'(\d+)[\s个台]*除醛喷雾',       # 2个除醛喷雾
+                r'(\d+)[\s个台]*喷雾'            # 2个喷雾
+            ]
         }
         
         # 中文数字转换
@@ -328,17 +376,21 @@ class OrderInfoProcessor:
                             match = chinese_numbers[match]
                         try:
                             count = int(match)
-                            if gift_type in gifts:
-                                gifts[gift_type] += count
-                            else:
-                                gifts[gift_type] = count
+                            # 过滤掉不合理的数字（如电话号码）
+                            if 1 <= count <= 999:  # 赠品数量应该在合理范围内
+                                if gift_type in gifts:
+                                    gifts[gift_type] += count
+                                else:
+                                    gifts[gift_type] = count
                         except ValueError:
                             continue
         
-        # 格式化为{品类:数量}格式
+        # 格式化为{品类:数量}格式 - 修复CSV格式问题
         if gifts:
+            # 使用分号分隔多个赠品，避免CSV解析时被逗号分割
             gift_items = [f"{gift_type}:{count}" for gift_type, count in gifts.items()]
-            return f'"{{{",".join(gift_items)}}}"'
+            gift_string = "{" + ";".join(gift_items) + "}"
+            return gift_string
         
         return ''
     

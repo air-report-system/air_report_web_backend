@@ -272,25 +272,47 @@ class MonthlyReportService:
         """解析并计算赠品成本"""
         total_cost = 0.0
         
-        # 简单的赠品解析逻辑
-        # 可以根据实际需求扩展
-        gift_str = gift_str.lower()
-        
-        # 解析除醛宝
-        if "除醛宝" in gift_str:
-            # 尝试提取数量
-            import re
-            match = re.search(r'(\d+).*?除醛宝', gift_str)
-            if match:
-                count = int(match.group(1))
-                total_cost += count * self.gift_costs['bottle']
-        
-        # 解析炭包
-        if "炭包" in gift_str:
-            match = re.search(r'(\d+).*?炭包', gift_str)
-            if match:
-                count = int(match.group(1))
-                total_cost += count * self.gift_costs['carbon_bag']
+        # 解析礼品信息格式：{除醛宝:15;炭包:3}
+        if gift_str.startswith('{') and gift_str.endswith('}'):
+            # 去掉大括号并按分号分割
+            content = gift_str[1:-1]  # 去掉大括号
+            items = content.split(';')
+            
+            for item in items:
+                if ':' in item:
+                    gift_type, quantity = item.split(':', 1)
+                    gift_type = gift_type.strip()
+                    quantity = quantity.strip()
+                    
+                    try:
+                        qty = int(quantity)
+                        if '除醛宝' in gift_type:
+                            total_cost += qty * self.gift_costs['bottle']  # 除醛宝10元/个
+                        elif '炭包' in gift_type:
+                            total_cost += qty * self.gift_costs['carbon_bag']  # 炭包15元/包
+                        elif '除醛机' in gift_type:
+                            total_cost += qty * self.gift_costs['machine']  # 除醛机0元（总部承担）
+                    except ValueError:
+                        logger.warning(f"无法解析礼品数量: {item}")
+        else:
+            # 兼容旧格式的简单文本解析
+            gift_str = gift_str.lower()
+            
+            # 解析除醛宝
+            if "除醛宝" in gift_str:
+                # 尝试提取数量
+                import re
+                match = re.search(r'(\d+).*?除醛宝', gift_str)
+                if match:
+                    count = int(match.group(1))
+                    total_cost += count * self.gift_costs['bottle']
+            
+            # 解析炭包
+            if "炭包" in gift_str:
+                match = re.search(r'(\d+).*?炭包', gift_str)
+                if match:
+                    count = int(match.group(1))
+                    total_cost += count * self.gift_costs['carbon_bag']
         
         return total_cost
     

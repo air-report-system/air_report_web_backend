@@ -645,17 +645,28 @@ class MonthlyReportService:
         try:
             total_cost = 0.0
 
-            # 解析JSON格式的赠品信息
+            # 解析礼品信息格式：{除醛宝:15;炭包:3}
             if gift_str.startswith('{') and gift_str.endswith('}'):
-                import json
-                gift_data = json.loads(gift_str)
-                for item, quantity in gift_data.items():
-                    if '除醛宝' in item:
-                        total_cost += int(quantity) * 10  # 除醛宝10元/个
-                    elif '炭包' in item:
-                        total_cost += int(quantity) * 15  # 炭包15元/包
-                    elif '除醛机' in item:
-                        total_cost += int(quantity) * 0   # 除醛机0元（总部承担）
+                # 去掉大括号并按分号分割
+                content = gift_str[1:-1]  # 去掉大括号
+                items = content.split(';')
+                
+                for item in items:
+                    if ':' in item:
+                        gift_type, quantity = item.split(':', 1)
+                        gift_type = gift_type.strip()
+                        quantity = quantity.strip()
+                        
+                        try:
+                            qty = int(quantity)
+                            if '除醛宝' in gift_type:
+                                total_cost += qty * 10  # 除醛宝10元/个
+                            elif '炭包' in gift_type:
+                                total_cost += qty * 15  # 炭包15元/包
+                            elif '除醛机' in gift_type:
+                                total_cost += qty * 0   # 除醛机0元（总部承担）
+                        except ValueError:
+                            logger.warning(f"无法解析礼品数量: {item}")
             else:
                 # 简单文本解析
                 if '除醛宝' in gift_str:

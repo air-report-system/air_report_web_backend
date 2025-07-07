@@ -37,15 +37,15 @@ class WechatCsvRecordSerializer(serializers.ModelSerializer):
             return value
         
         import re
-        # 检查基本格式：{品类:数量,品类:数量}
-        pattern = r'^\{([^:]+:\d+(?:,[^:]+:\d+)*)\}$'
+        # 检查基本格式：{品类:数量;品类:数量}
+        pattern = r'^\{([^:]+:\d+(?:;[^:]+:\d+)*)\}$'
         if not re.match(pattern, value):
             raise serializers.ValidationError("备注赠品格式错误，应为{品类:数量}格式")
         
         # 检查品类是否在允许的范围内
         allowed_gifts = ["除醛宝", "炭包", "除醛机", "除醛喷雾"]
         content = value[1:-1]  # 去掉大括号
-        items = content.split(',')
+        items = content.split(';')
         
         for item in items:
             if ':' not in item:
