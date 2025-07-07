@@ -7,6 +7,7 @@ import csv
 import io
 import re
 import threading
+import requests
 from datetime import datetime
 from typing import Dict, Any, List
 from django.conf import settings
@@ -48,7 +49,32 @@ class OrderInfoProcessor:
     """订单信息处理器 - 复用GUI项目的format_wechat_message逻辑"""
     
     def __init__(self):
-        """初始化Gemini API"""
+        """初始化 AI 服务"""
+        # 检查是否使用OpenAI兼容接口
+        self.use_openai = getattr(settings, 'USE_OPENAI_OCR', False)
+        
+        if self.use_openai:
+            self._init_openai_service()
+        else:
+            self._init_gemini_service()
+    
+    def _init_openai_service(self):
+        """初始化OpenAI兼容服务"""
+        self.api_key = getattr(settings, 'OPENAI_API_KEY', None)
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY未配置")
+        
+        self.base_url = getattr(settings, 'OPENAI_BASE_URL', 'https://api.openai.com/v1')
+        self.model_name = getattr(settings, 'OPENAI_MODEL_NAME', 'gpt-4o-mini')
+        
+        # 设置代理（如果启用）
+        self._setup_proxy()
+        
+        print(f"OpenAI兼容服务初始化成功，使用模型: {self.model_name}")
+        print(f"API基础URL: {self.base_url}")
+    
+    def _init_gemini_service(self):
+        """初始化Gemini服务"""
         api_key = getattr(settings, 'GEMINI_API_KEY', None)
         if not api_key:
             raise ValueError("GEMINI_API_KEY未配置")
@@ -68,14 +94,21 @@ class OrderInfoProcessor:
             raise
 
     def _setup_proxy(self):
-        """设置代理环境变量"""
+        """设置代理环境变量和代理字典"""
         use_proxy = getattr(settings, 'USE_PROXY', False)
         if use_proxy:
             http_proxy = getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10809')
             https_proxy = getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10809')
 
+            # 设置环境变量（用于Gemini）
             os.environ["HTTP_PROXY"] = http_proxy
             os.environ["HTTPS_PROXY"] = https_proxy
+            
+            # 设置代理字典（用于requests）
+            self.proxies = {
+                'http': http_proxy,
+                'https': https_proxy
+            }
             print(f"代理已启用: HTTP_PROXY={http_proxy}, HTTPS_PROXY={https_proxy}")
         else:
             # 清除代理环境变量
@@ -83,56 +116,142 @@ class OrderInfoProcessor:
                 del os.environ["HTTP_PROXY"]
             if "HTTPS_PROXY" in os.environ:
                 del os.environ["HTTPS_PROXY"]
+            
+            # 设置空代理字典
+            self.proxies = {'http': None, 'https': None}
             print("代理已禁用，清除代理环境变量")
     
     @timeout_handler(getattr(settings, 'API_TIMEOUT_SECONDS', 30))
     def format_order_message(self, order_text: str) -> str:
         """
-        使用Gemini API将订单信息格式化为CSV格式
+        使用配置的AI服务将订单信息格式化为CSV格式
         复用GUI项目的format_wechat_message函数逻辑
         """
         try:
-            # 获取当前年份
-            current_year = datetime.now().year
-
-            prompt = f"""
-            请分析以下订单信息中的业务数据，并提取关键信息整理成CSV格式。
-            每行格式应为：客户姓名,客户电话,客户地址,商品类型(国标/母婴),成交金额,面积,履约时间,CMA点位数量,备注赠品
-
-            注意事项：
-            1. 如果某个字段没有信息，请留空
-            2. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
-            3. 成交金额只保留数字，不要包含"元"等单位
-            4. 面积只保留数字，不要包含"平方米"等单位
-            5. 商品类型只能是"国标"或"母婴"
-            6. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
-            7. 备注赠品格式：{{品类:数量}}，多个赠品用逗号分隔，如：{{除醛宝:2,炭包:1}}
-               - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
-               - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
-               - 注意：一定要是双引号引住大括号，不然会被csv认为是多个字段
-            8. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
-            9. 只输出CSV格式的一行数据，不要包含任何其他说明文字
-            10. 不要包含CSV的标题行
-
-            订单信息内容：
-            {order_text}
-
-            请只输出CSV格式的一行数据，不要包含任何其他说明文字。
-            """
-
-            print(f"正在调用Gemini API处理订单信息...")
-            response = self.model.generate_content(prompt)
-            formatted_csv = response.text.strip()
-            print(f"Gemini API响应: {formatted_csv}")
-
-            # 后处理：提取CMA点位数量和备注赠品
-            formatted_csv = self._post_process_csv(formatted_csv, order_text)
-
-            return formatted_csv
+            if self.use_openai:
+                return self._format_with_openai(order_text)
+            else:
+                return self._format_with_gemini(order_text)
         except Exception as e:
-            print(f"Gemini API调用失败，使用本地处理: {str(e)}")
-            # 如果Gemini API失败，使用本地处理方式
+            print(f"AI API调用失败，使用本地处理: {str(e)}")
+            # 如果AI API失败，使用本地处理方式
             return self._local_format_order_message(order_text)
+    
+    def _format_with_openai(self, order_text: str) -> str:
+        """使用OpenAI兼容接口格式化订单信息"""
+        # 获取当前年份
+        current_year = datetime.now().year
+        
+        prompt = f"""
+        请分析以下订单信息中的业务数据，并提取关键信息整理成CSV格式。
+        每行格式应为：客户姓名,客户电话,客户地址,商品类型(国标/母婴),成交金额,面积,履约时间,CMA点位数量,备注赠品
+
+        注意事项：
+        1. 如果某个字段没有信息，请留空
+        2. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
+        3. 成交金额只保留数字，不要包含"元"等单位
+        4. 面积只保留数字，不要包含"平方米"等单位
+        5. 商品类型只能是"国标"或"母婴"
+        6. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
+        7. 备注赠品格式：{{品类:数量}}，多个赠品用逗号分隔，如：{{除醛宝:2,炭包:1}}
+           - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
+           - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
+           - 注意：一定要是双引号引住大括号，不然会被csv认为是多个字段
+        8. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
+        9. 只输出CSV格式的一行数据，不要包含任何其他说明文字
+        10. 不要包含CSV的标题行
+
+        订单信息内容：
+        {order_text}
+
+        请只输出CSV格式的一行数据，不要包含任何其他说明文字。
+        """
+        
+        # 构建请求
+        url = f"{self.base_url}/chat/completions"
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}'
+        }
+        
+        payload = {
+            "model": self.model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1000
+        }
+        
+        # 发送请求
+        print(f"正在调用OpenAI兼容API处理订单信息...")
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=getattr(settings, 'API_TIMEOUT_SECONDS', 30),
+            proxies=self.proxies
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            if 'choices' in response_data and response_data['choices']:
+                formatted_csv = response_data['choices'][0]['message']['content'].strip()
+                print(f"OpenAI API响应: {formatted_csv}")
+                
+                # 后处理：提取CMA点位数量和备注赠品
+                formatted_csv = self._post_process_csv(formatted_csv, order_text)
+                
+                return formatted_csv
+            else:
+                raise Exception("OpenAI API响应格式异常")
+        else:
+            error_msg = f"OpenAI API请求失败: {response.status_code} - {response.text}"
+            raise Exception(error_msg)
+    
+    def _format_with_gemini(self, order_text: str) -> str:
+        """使用Gemini API格式化订单信息"""
+        # 获取当前年份
+        current_year = datetime.now().year
+
+        prompt = f"""
+        请分析以下订单信息中的业务数据，并提取关键信息整理成CSV格式。
+        每行格式应为：客户姓名,客户电话,客户地址,商品类型(国标/母婴),成交金额,面积,履约时间,CMA点位数量,备注赠品
+
+        注意事项：
+        1. 如果某个字段没有信息，请留空
+        2. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
+        3. 成交金额只保留数字，不要包含"元"等单位
+        4. 面积只保留数字，不要包含"平方米"等单位
+        5. 商品类型只能是"国标"或"母婴"
+        6. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
+        7. 备注赠品格式：{{品类:数量}}，多个赠品用逗号分隔，如：{{除醛宝:2,炭包:1}}
+           - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
+           - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
+           - 注意：一定要是双引号引住大括号，不然会被csv认为是多个字段
+        8. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
+        9. 只输出CSV格式的一行数据，不要包含任何其他说明文字
+        10. 不要包含CSV的标题行
+
+        订单信息内容：
+        {order_text}
+
+        请只输出CSV格式的一行数据，不要包含任何其他说明文字。
+        """
+
+        print(f"正在调用Gemini API处理订单信息...")
+        response = self.model.generate_content(prompt)
+        formatted_csv = response.text.strip()
+        print(f"Gemini API响应: {formatted_csv}")
+
+        # 后处理：提取CMA点位数量和备注赠品
+        formatted_csv = self._post_process_csv(formatted_csv, order_text)
+
+        return formatted_csv
     
     def _post_process_csv(self, csv_line: str, original_text: str) -> str:
         """
