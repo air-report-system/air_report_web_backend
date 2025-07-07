@@ -22,8 +22,8 @@ class BatchProcessingService:
         # 从设置中获取代理配置
         self.use_proxy = getattr(settings, 'USE_PROXY', False)
         self.proxy_settings = {
-            'http': getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10809'),
-            'https': getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10809')
+            'http': getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10808'),
+            'https': getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10808')
         }
         self.processing_delay = 1  # 处理间隔（秒）
         self.max_concurrent_tasks = getattr(settings, 'BATCH_MAX_CONCURRENT_TASKS', 5)

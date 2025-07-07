@@ -97,8 +97,8 @@ class OrderInfoProcessor:
         """设置代理环境变量和代理字典"""
         use_proxy = getattr(settings, 'USE_PROXY', False)
         if use_proxy:
-            http_proxy = getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10809')
-            https_proxy = getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10809')
+            http_proxy = getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10808')
+            https_proxy = getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10808')
 
             # 设置环境变量（用于Gemini）
             os.environ["HTTP_PROXY"] = http_proxy
@@ -121,7 +121,7 @@ class OrderInfoProcessor:
             self.proxies = {'http': None, 'https': None}
             print("代理已禁用，清除代理环境变量")
     
-    @timeout_handler(getattr(settings, 'API_TIMEOUT_SECONDS', 30))
+    @timeout_handler(getattr(settings, 'API_TIMEOUT_SECONDS', 120))
     def format_order_message(self, order_text: str) -> str:
         """
         使用配置的AI服务将订单信息格式化为CSV格式
@@ -137,7 +137,7 @@ class OrderInfoProcessor:
             # 如果AI API失败，使用本地处理方式
             return self._local_format_order_message(order_text)
     
-    @timeout_handler(getattr(settings, 'API_TIMEOUT_SECONDS', 30))
+    @timeout_handler(getattr(settings, 'API_TIMEOUT_SECONDS', 120))
     def format_multiple_orders(self, order_text: str) -> List[str]:
         """
         处理多个订单的信息，返回多行CSV数据

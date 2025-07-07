@@ -44,7 +44,6 @@ LOCAL_APPS = [
     'apps.reports',
     'apps.batch',
     'apps.monthly',
-    'apps.wechat_csv',
     'apps.orders',
 ]
 
@@ -196,8 +195,8 @@ GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-2.0-flash-exp-image-g
 
 # 代理配置
 USE_PROXY = os.getenv('USE_PROXY', 'false').lower() == 'true'
-HTTP_PROXY = os.getenv('HTTP_PROXY', 'http://127.0.0.1:10809')
-HTTPS_PROXY = os.getenv('HTTPS_PROXY', 'http://127.0.0.1:10809')
+HTTP_PROXY = os.getenv('HTTP_PROXY', 'http://127.0.0.1:10808')
+HTTPS_PROXY = os.getenv('HTTPS_PROXY', 'http://127.0.0.1:10808')
 
 # 调试信息
 print(f"[DEBUG] settings.base: USE_PROXY={USE_PROXY} (from env: {os.getenv('USE_PROXY', 'false')})")

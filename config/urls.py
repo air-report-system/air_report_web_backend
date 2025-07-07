@@ -28,7 +28,6 @@ def api_root(request):
             'reports': '/api/v1/reports/',
             'batch': '/api/v1/batch/',
             'monthly': '/api/v1/monthly/',
-            'wechat_csv': '/api/v1/wechat-csv/',
             'orders': '/api/v1/orders/',
         }
     })
@@ -57,7 +56,6 @@ urlpatterns = [
     path('api/v1/reports', include('apps.reports.urls')),  # 不带斜杠的版本
     path('api/v1/batch/', include('apps.batch.urls')),
     path('api/v1/monthly/', include('apps.monthly.urls')),
-    path('api/v1/wechat-csv/', include('apps.wechat_csv.urls')),
     path('api/v1/orders/', include('apps.orders.urls')),
 ]
 

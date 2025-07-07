@@ -3,8 +3,8 @@
 """
 from django.urls import path
 from .views import (
-    ProcessOrderInfoView, UpdateOrderDataView, SubmitOrderView,
-    OrderRecordListView, OrderRecordDetailView
+    ProcessOrderInfoView, ProcessMultipleOrdersView, UpdateOrderDataView, SubmitOrderView,
+    SubmitMultipleOrdersView, OrderRecordListView, OrderRecordDetailView
 )
 
 app_name = 'orders'
@@ -19,6 +19,8 @@ urlpatterns = [
     path('update', UpdateOrderDataView.as_view(), name='update-order-data-no-slash'),
     path('submit/', SubmitOrderView.as_view(), name='submit-order'),
     path('submit', SubmitOrderView.as_view(), name='submit-order-no-slash'),
+    path('submit-multiple/', SubmitMultipleOrdersView.as_view(), name='submit-multiple-orders'),
+    path('submit-multiple', SubmitMultipleOrdersView.as_view(), name='submit-multiple-orders-no-slash'),
 
     # 订单记录管理
     path('records/', OrderRecordListView.as_view(), name='order-records'),

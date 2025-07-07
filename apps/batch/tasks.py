@@ -246,8 +246,8 @@ def process_batch_item(self, item_id, batch_job_id, use_multi_ocr=False, ocr_cou
         # 设置代理（移植自GUI项目）
         from django.conf import settings
         if getattr(settings, 'USE_PROXY', False):
-            http_proxy = getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10809')
-            https_proxy = getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10809')
+            http_proxy = getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10808')
+            https_proxy = getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10808')
             os.environ["HTTP_PROXY"] = http_proxy
             os.environ["HTTPS_PROXY"] = https_proxy
             logger.info(f"批量任务代理已启用: HTTP_PROXY={http_proxy}, HTTPS_PROXY={https_proxy}")
