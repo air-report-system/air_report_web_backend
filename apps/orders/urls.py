@@ -26,4 +26,5 @@ urlpatterns = [
     path('records/', OrderRecordListView.as_view(), name='order-records'),
     path('records', OrderRecordListView.as_view(), name='order-records-no-slash'),
     path('records/<int:pk>/', OrderRecordDetailView.as_view(), name='order-record-detail'),
+    path('records/<int:pk>', OrderRecordDetailView.as_view(), name='order-record-detail-no-slash'),
 ]

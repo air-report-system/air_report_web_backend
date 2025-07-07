@@ -57,6 +57,7 @@ urlpatterns = [
     path('api/v1/batch/', include('apps.batch.urls')),
     path('api/v1/monthly/', include('apps.monthly.urls')),
     path('api/v1/orders/', include('apps.orders.urls')),
+    path('api/v1/orders', include('apps.orders.urls')),  # 不带斜杠的版本
 ]
 
 # 开发环境静态文件服务
