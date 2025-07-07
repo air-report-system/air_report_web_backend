@@ -496,3 +496,42 @@ def process_image_ocr_sync(file_id, user_id, use_multi_ocr=False, ocr_count=3):
             'error': str(e),
             'ocr_result_id': ocr_result.id if 'ocr_result' in locals() else None
         }
+
+
+def single_ocr_process_with_service(image_path, ocr_service):
+    """
+    使用指定OCR服务处理单次OCR
+    
+    Args:
+        image_path: 图片路径
+        ocr_service: OCR服务实例
+        
+    Returns:
+        dict: OCR结果
+    """
+    try:
+        # 调用OCR服务处理图片
+        result = ocr_service.process_image(image_path)
+        
+        # 确保结果包含所有必需字段
+        default_result = {
+            'phone': '',
+            'date': '',
+            'temperature': '',
+            'humidity': '',
+            'check_type': 'initial',
+            'points_data': {},
+            'raw_response': '',
+            'confidence_score': 0.0,
+            'has_conflicts': False,
+            'conflict_details': {}
+        }
+        
+        # 合并结果，确保所有字段都存在
+        final_result = {**default_result, **result}
+        
+        return final_result
+        
+    except Exception as e:
+        # OCR处理失败时抛出异常，让上层处理
+        raise Exception(f'OCR服务处理失败: {str(e)}')

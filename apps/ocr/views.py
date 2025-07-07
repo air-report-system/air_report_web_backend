@@ -308,18 +308,52 @@ class UploadAndProcessView(APIView):
                         }, status=status.HTTP_200_OK)
                         
                     except Exception as sync_error:
-                        logger.error(f"同步OCR处理失败: {sync_error}")
+                        logger.error(f"同步OCR处理失败: {sync_error}", exc_info=True)
                         # 更新OCR结果状态
                         ocr_result.status = 'failed'
                         ocr_result.error_message = str(sync_error)
                         ocr_result.save()
                         
-                        return Response({
-                            'error': f'OCR处理失败: {str(sync_error)}',
-                            'file_id': uploaded_file.id,
-                            'ocr_result_id': ocr_result.id,
-                            'status': 'failed'
-                        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                        # 尝试降级到 Gemini API
+                        logger.info("尝试降级到 Gemini API")
+                        try:
+                            from .services import GeminiOCRService
+                            from .tasks import single_ocr_process_with_service
+                            
+                            gemini_service = GeminiOCRService()
+                            fallback_result = single_ocr_process_with_service(uploaded_file.file.path, gemini_service)
+                            
+                            # 更新OCR结果
+                            ocr_result.status = 'completed'
+                            ocr_result.phone = fallback_result.get('phone', '')
+                            ocr_result.date = fallback_result.get('date', '')
+                            ocr_result.temperature = fallback_result.get('temperature', '')
+                            ocr_result.humidity = fallback_result.get('humidity', '')
+                            ocr_result.check_type = fallback_result.get('check_type', 'initial')
+                            ocr_result.points_data = fallback_result.get('points_data', {})
+                            ocr_result.raw_response = fallback_result.get('raw_response', '')
+                            ocr_result.confidence_score = fallback_result.get('confidence_score', 0.0)
+                            ocr_result.error_message = ''
+                            ocr_result.save()
+                            
+                            return Response({
+                                'message': '文件上传成功，OCR处理完成（使用备用服务）',
+                                'file_id': uploaded_file.id,
+                                'ocr_result_id': ocr_result.id,
+                                'status': ocr_result.status,
+                                'phone': ocr_result.phone,
+                                'fallback_used': True
+                            }, status=status.HTTP_200_OK)
+                            
+                        except Exception as fallback_error:
+                            logger.error(f"降级处理也失败: {fallback_error}", exc_info=True)
+                            return Response({
+                                'error': f'OCR处理失败: {str(sync_error)}',
+                                'fallback_error': str(fallback_error),
+                                'file_id': uploaded_file.id,
+                                'ocr_result_id': ocr_result.id,
+                                'status': 'failed'
+                            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
                 else:
                     # 异步模式：使用Celery
                     logger.info("使用异步模式处理OCR")
