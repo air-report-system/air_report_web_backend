@@ -250,9 +250,12 @@ class UploadAndProcessView(APIView):
                         uploaded_file = existing_file
                         logger.info(f"使用现有文件: {uploaded_file.id}")
                     else:
-                        # 创建新文件记录（如果没有文件或物理文件不存在）
+                        # 如果存在记录但物理文件不存在，删除旧记录
                         if existing_file:
-                            logger.warning(f"现有文件 {existing_file.id} 的物理文件不存在，创建新文件")
+                            logger.warning(f"现有文件 {existing_file.id} 的物理文件不存在，删除旧记录并创建新文件")
+                            existing_file.delete()
+
+                        # 创建新文件记录
                         uploaded_file = UploadedFile.objects.create(
                             file=image,
                             original_name=image.name,
