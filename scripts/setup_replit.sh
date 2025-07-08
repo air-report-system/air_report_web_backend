@@ -517,39 +517,41 @@ show_startup_info() {
 start_placeholder_service() {
     log_info "启动占位服务以满足Replit端口检测..."
 
-    # 启动一个简单的HTTP服务器作为占位
-    python3 -c "
-import http.server
-import socketserver
+    # 创建一个简单的Python HTTP服务器
+    cat > /tmp/placeholder_server.py << 'EOF'
+import socket
 import threading
 import time
-import signal
-import sys
 
-class PlaceholderHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        self.wfile.write(b'{\"status\": \"configuring\", \"message\": \"Environment setup in progress\"}')
+def handle_request(conn):
+    try:
+        data = conn.recv(1024)
+        response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 54\r\n\r\n{\"status\": \"configuring\", \"message\": \"Setup in progress\"}"
+        conn.send(response)
+    except:
+        pass
+    finally:
+        conn.close()
 
-class PlaceholderServer:
-    def __init__(self):
-        self.httpd = None
+def run_server():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(('0.0.0.0', 8000))
+    sock.listen(5)
 
-    def start(self):
-        self.httpd = socketserver.TCPServer(('0.0.0.0', 8000), PlaceholderHandler)
-        self.httpd.serve_forever()
+    while True:
+        try:
+            conn, addr = sock.accept()
+            threading.Thread(target=handle_request, args=(conn,), daemon=True).start()
+        except:
+            break
 
-    def stop(self):
-        if self.httpd:
-            self.httpd.shutdown()
-            self.httpd.server_close()
+if __name__ == "__main__":
+    run_server()
+EOF
 
-server = PlaceholderServer()
-server.start()
-" &
-
+    # 启动占位服务器
+    python3 /tmp/placeholder_server.py &
     PLACEHOLDER_PID=$!
     echo $PLACEHOLDER_PID > /tmp/placeholder.pid
 
@@ -560,23 +562,53 @@ server.start()
 
 # 停止占位服务
 stop_placeholder_service() {
+    log_info "清理端口8000..."
+
+    # 停止PID文件记录的进程
     if [[ -f /tmp/placeholder.pid ]]; then
         PLACEHOLDER_PID=$(cat /tmp/placeholder.pid)
         if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
-            log_info "停止占位服务..."
+            log_info "停止占位服务 (PID: $PLACEHOLDER_PID)..."
             kill -TERM $PLACEHOLDER_PID 2>/dev/null || true
             sleep 1
             # 如果还在运行，强制杀死
             if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
                 kill -KILL $PLACEHOLDER_PID 2>/dev/null || true
             fi
-            rm -f /tmp/placeholder.pid
-            log_success "占位服务已停止"
+        fi
+        rm -f /tmp/placeholder.pid
+    fi
+
+    # 强制杀死所有占用8000端口的进程
+    log_info "强制清理端口8000上的所有进程..."
+
+    # 查找并杀死占用8000端口的进程
+    local port_pids=$(lsof -ti:8000 2>/dev/null || true)
+    if [[ -n "$port_pids" ]]; then
+        log_info "发现占用端口8000的进程: $port_pids"
+        echo "$port_pids" | xargs -r kill -TERM 2>/dev/null || true
+        sleep 2
+        # 再次检查，如果还有进程则强制杀死
+        port_pids=$(lsof -ti:8000 2>/dev/null || true)
+        if [[ -n "$port_pids" ]]; then
+            log_info "强制杀死顽固进程: $port_pids"
+            echo "$port_pids" | xargs -r kill -KILL 2>/dev/null || true
         fi
     fi
 
-    # 额外确保端口8000被释放
-    sleep 2
+    # 等待端口完全释放
+    local count=0
+    while lsof -ti:8000 >/dev/null 2>&1 && [[ $count -lt 10 ]]; do
+        log_info "等待端口8000释放... ($count/10)"
+        sleep 1
+        count=$((count + 1))
+    done
+
+    if lsof -ti:8000 >/dev/null 2>&1; then
+        log_warning "端口8000仍被占用，但继续启动"
+    else
+        log_success "端口8000已释放"
+    fi
 }
 
 # 主函数
