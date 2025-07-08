@@ -463,6 +463,22 @@ verify_installation() {
     log_success "安装验证完成"
 }
 
+# 简化的验证安装
+verify_installation_quick() {
+    log_info "快速验证安装..."
+
+    cd "$PROJECT_ROOT"
+
+    # 只检查Django配置
+    if python manage.py check --deploy 2>/dev/null; then
+        log_success "Django配置检查通过"
+    else
+        log_warning "Django配置有警告，但继续启动"
+    fi
+
+    log_success "快速验证完成"
+}
+
 # 标记安装完成
 mark_setup_complete() {
     echo "$(date): Replit setup completed successfully" > "$SETUP_MARKER"
@@ -471,42 +487,30 @@ mark_setup_complete() {
 
 # 准备启动服务器
 prepare_server_startup() {
-    log_info "准备启动Django服务器..."
-    
+    log_info "完成服务器启动准备..."
+
     cd "$PROJECT_ROOT"
-    
-    # 最终检查
-    if python manage.py check --deploy 2>/dev/null; then
-        log_success "Django部署检查通过"
-    else
-        log_warning "Django部署检查有警告，但继续启动"
-    fi
-    
+
     # 确保端口配置正确
     export PORT=8000
     export HOST=0.0.0.0
-    
-    log_success "服务器准备完成，即将启动..."
+
+    log_success "环境配置完成，准备交给.replit启动服务器"
 }
 
 # 显示启动信息
 show_startup_info() {
-    log_success "🎉 Replit环境部署完成！"
+    log_success "🎉 Replit环境配置完成！"
     echo ""
-    log_info "📋 部署信息:"
+    log_info "📋 配置信息:"
     log_info "  • Django设置: config.settings.replit"
     log_info "  • 超级用户: admin / admin123"
     log_info "  • 管理后台: /admin/"
     log_info "  • API文档: /api/docs/"
     log_info "  • 字体支持: 中文/英文字体已安装"
     echo ""
-    log_info "🔧 环境变量配置:"
-    log_info "  • DATABASE_URL: PostgreSQL连接字符串"
-    log_info "  • SECRET_KEY: Django密钥"
-    log_info "  • DEBUG: 调试模式 (True/False)"
-    echo ""
-    log_info "🚀 即将在 $HOST:$PORT 启动服务器..."
-    log_info "⏱️  部署脚本即将退出，Django将开始启动..."
+    log_info "✅ 环境配置脚本执行完成"
+    log_info "🚀 Django服务器将由.replit配置启动..."
 }
 
 # 主函数
@@ -521,15 +525,15 @@ main() {
 
     # 配置系统依赖（仅首次运行）
     configure_system_dependencies
-    
+
     # 安装字体
     install_fonts
-    
-    # 设置环境变量
-    setup_environment_variables
-    
+
     # 启动LibreOffice服务
     start_libreoffice_service
+
+    # 设置环境变量
+    setup_environment_variables
     
     # 数据库迁移
     run_database_migrations
@@ -540,8 +544,8 @@ main() {
     # 收集静态文件
     collect_static_files
     
-    # 验证安装 - 已禁用以加快部署速度
-    # verify_installation
+    # 简化验证安装
+    verify_installation_quick
     
     # 标记安装完成
     mark_setup_complete

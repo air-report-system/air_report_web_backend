@@ -282,20 +282,11 @@ EOF
 # 启动虚拟显示
 setup_virtual_display() {
     log_info "设置虚拟显示..."
-    
-    # 检查Xvfb是否运行
-    if pgrep -x "Xvfb" > /dev/null; then
-        log_warning "Xvfb已在运行"
-        return 0
-    fi
-    
-    # 启动虚拟显示
-    Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &
-    export DISPLAY=:99
-    
-    # 等待显示启动
-    sleep 2
-    
+
+    # LibreOffice 7.6+ 支持真正的headless模式，不需要Xvfb
+    log_info "DEBUG: LibreOffice headless模式 - 无需虚拟显示"
+    log_info "DEBUG: 跳过虚拟显示检查 - LibreOffice 7.6+ 支持真正的headless模式"
+
     log_success "虚拟显示设置完成"
 }
 
@@ -372,13 +363,8 @@ create_startup_script() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../.env.libreoffice" 2>/dev/null || true
 
-# 启动虚拟显示
-if ! pgrep -x "Xvfb" > /dev/null; then
-    echo "启动虚拟显示..."
-    Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &
-    export DISPLAY=:99
-    sleep 2
-fi
+# 启动虚拟显示 - LibreOffice 7.6+ 支持真正headless模式，跳过Xvfb
+echo "LibreOffice headless模式 - 无需虚拟显示"
 
 # 启动LibreOffice服务
 if ! pgrep -f "soffice.*headless" > /dev/null; then
