@@ -23,16 +23,12 @@
     pkgs.liberation_ttf
     pkgs.source-han-sans
     pkgs.source-han-serif
-    pkgs.ttf-dejavu
     
     # 字体配置工具
-    pkgs.fontconfig
     pkgs.freetype
     pkgs.xorg.xrdb
     
-    # 系统字体支持
-    pkgs.corefonts
-    pkgs.vistafonts
+    # 中文字体支持
     pkgs.wqy_zenhei
     pkgs.wqy_microhei
     
