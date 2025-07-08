@@ -212,22 +212,7 @@ class GeminiOCRService(OCRService):
         self.base_url = getattr(settings, 'GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com')
         self.model_name = getattr(settings, 'GEMINI_MODEL_NAME', 'gemini-2.0-flash-exp')
 
-        # 设置代理
-        use_proxy = getattr(settings, 'USE_PROXY', False)
-        logger.info(f"GeminiOCRService.__init__: USE_PROXY={use_proxy}")
-        if use_proxy:
-            http_proxy = getattr(settings, 'HTTP_PROXY', None)
-            https_proxy = getattr(settings, 'HTTPS_PROXY', None)
-            self.proxies = {}
-            if http_proxy:
-                self.proxies['http'] = http_proxy
-            if https_proxy:
-                self.proxies['https'] = https_proxy
-            logger.info(f"GeminiOCRService.__init__: 代理已启用 {self.proxies}")
-        else:
-            # 禁用代理
-            self.proxies = None
-            logger.info("GeminiOCRService.__init__: 代理已禁用")
+        # 代理设置已移除
 
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY未设置")
@@ -290,8 +275,7 @@ class GeminiOCRService(OCRService):
                 url,
                 headers=headers,
                 json=payload,
-                timeout=self.timeout,
-                proxies=self.proxies
+                timeout=self.timeout
             )
             
             logger.info(f"请求响应状态码: {response.status_code}")
@@ -408,22 +392,7 @@ class OpenAIOCRService(OCRService):
         self.base_url = getattr(settings, 'OPENAI_BASE_URL', 'https://api.openai.com/v1')
         self.model_name = getattr(settings, 'OPENAI_MODEL_NAME', 'gpt-4-vision-preview')
 
-        # 设置代理
-        use_proxy = getattr(settings, 'USE_PROXY', False)
-        logger.info(f"OpenAIOCRService.__init__: USE_PROXY={use_proxy}")
-        if use_proxy:
-            http_proxy = getattr(settings, 'HTTP_PROXY', None)
-            https_proxy = getattr(settings, 'HTTPS_PROXY', None)
-            self.proxies = {}
-            if http_proxy:
-                self.proxies['http'] = http_proxy
-            if https_proxy:
-                self.proxies['https'] = https_proxy
-            logger.info(f"OpenAIOCRService.__init__: 代理已启用 {self.proxies}")
-        else:
-            # 禁用代理
-            self.proxies = None
-            logger.info("OpenAIOCRService.__init__: 代理已禁用")
+        # 代理设置已移除
 
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY未设置")
@@ -482,8 +451,7 @@ class OpenAIOCRService(OCRService):
                 url,
                 headers=headers,
                 json=payload,
-                timeout=self.timeout,
-                proxies=self.proxies
+                timeout=self.timeout
             )
             
             if response.status_code == 200:

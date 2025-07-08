@@ -243,21 +243,7 @@ def process_batch_item(self, item_id, batch_job_id, use_multi_ocr=False, ocr_cou
         file_item.status = 'processing'
         file_item.save()
 
-        # 设置代理（移植自GUI项目）
-        from django.conf import settings
-        if getattr(settings, 'USE_PROXY', False):
-            http_proxy = getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10808')
-            https_proxy = getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10808')
-            os.environ["HTTP_PROXY"] = http_proxy
-            os.environ["HTTPS_PROXY"] = https_proxy
-            logger.info(f"批量任务代理已启用: HTTP_PROXY={http_proxy}, HTTPS_PROXY={https_proxy}")
-        else:
-            # 清除代理环境变量
-            if "HTTP_PROXY" in os.environ:
-                del os.environ["HTTP_PROXY"]
-            if "HTTPS_PROXY" in os.environ:
-                del os.environ["HTTPS_PROXY"]
-            logger.info("批量任务代理已禁用，清除代理环境变量")
+        # 代理设置已移除
 
         # 调用OCR处理任务
         from apps.ocr.tasks import process_image_ocr

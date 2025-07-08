@@ -67,8 +67,7 @@ class OrderInfoProcessor:
         self.base_url = getattr(settings, 'OPENAI_BASE_URL', 'https://api.openai.com/v1')
         self.model_name = getattr(settings, 'OPENAI_MODEL_NAME', 'gpt-4o-mini')
         
-        # 设置代理（如果启用）
-        self._setup_proxy()
+        # 代理设置已移除
         
         print(f"OpenAI兼容服务初始化成功，使用模型: {self.model_name}")
         print(f"API基础URL: {self.base_url}")
@@ -80,9 +79,7 @@ class OrderInfoProcessor:
             raise ValueError("GEMINI_API_KEY未配置")
 
         try:
-            # 设置代理（如果启用）
-            self._setup_proxy()
-
+            # 代理设置已移除
             genai.configure(api_key=api_key)
             model_name = getattr(settings, 'GEMINI_MODEL_NAME')
             print(f"从settings读取到的模型名称: {model_name}")
@@ -93,33 +90,7 @@ class OrderInfoProcessor:
             print(f"Gemini API初始化失败: {str(e)}")
             raise
 
-    def _setup_proxy(self):
-        """设置代理环境变量和代理字典"""
-        use_proxy = getattr(settings, 'USE_PROXY', False)
-        if use_proxy:
-            http_proxy = getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10808')
-            https_proxy = getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10808')
-
-            # 设置环境变量（用于Gemini）
-            os.environ["HTTP_PROXY"] = http_proxy
-            os.environ["HTTPS_PROXY"] = https_proxy
-            
-            # 设置代理字典（用于requests）
-            self.proxies = {
-                'http': http_proxy,
-                'https': https_proxy
-            }
-            print(f"代理已启用: HTTP_PROXY={http_proxy}, HTTPS_PROXY={https_proxy}")
-        else:
-            # 清除代理环境变量
-            if "HTTP_PROXY" in os.environ:
-                del os.environ["HTTP_PROXY"]
-            if "HTTPS_PROXY" in os.environ:
-                del os.environ["HTTPS_PROXY"]
-            
-            # 设置空代理字典
-            self.proxies = {'http': None, 'https': None}
-            print("代理已禁用，清除代理环境变量")
+    # 代理设置方法已移除
     
     @timeout_handler(getattr(settings, 'API_TIMEOUT_SECONDS', 120))
     def format_order_message(self, order_text: str) -> str:
@@ -210,8 +181,7 @@ class OrderInfoProcessor:
             url,
             headers=headers,
             json=payload,
-            timeout=getattr(settings, 'API_TIMEOUT_SECONDS', 30),
-            proxies=self.proxies
+            timeout=getattr(settings, 'API_TIMEOUT_SECONDS', 30)
         )
         
         if response.status_code == 200:
@@ -333,8 +303,7 @@ class OrderInfoProcessor:
             url,
             headers=headers,
             json=payload,
-            timeout=getattr(settings, 'API_TIMEOUT_SECONDS', 30),
-            proxies=self.proxies
+            timeout=getattr(settings, 'API_TIMEOUT_SECONDS', 30)
         )
         
         if response.status_code == 200:

@@ -19,12 +19,6 @@ class BatchProcessingService:
     """批量处理服务 - 移植自GUI项目功能"""
     
     def __init__(self):
-        # 从设置中获取代理配置
-        self.use_proxy = getattr(settings, 'USE_PROXY', False)
-        self.proxy_settings = {
-            'http': getattr(settings, 'HTTP_PROXY', 'http://127.0.0.1:10808'),
-            'https': getattr(settings, 'HTTPS_PROXY', 'http://127.0.0.1:10808')
-        }
         self.processing_delay = 1  # 处理间隔（秒）
         self.max_concurrent_tasks = getattr(settings, 'BATCH_MAX_CONCURRENT_TASKS', 5)
     
@@ -123,22 +117,7 @@ class BatchProcessingService:
         except Exception as e:
             logger.error(f"文件复制失败: {e}")
     
-    def setup_proxy_environment(self):
-        """设置代理环境 - 移植自GUI项目"""
-        if self.use_proxy:
-            try:
-                os.environ["HTTP_PROXY"] = self.proxy_settings['http']
-                os.environ["HTTPS_PROXY"] = self.proxy_settings['https']
-                logger.info(f"代理环境设置完成: HTTP_PROXY={self.proxy_settings['http']}, HTTPS_PROXY={self.proxy_settings['https']}")
-            except Exception as e:
-                logger.warning(f"代理环境设置失败: {e}")
-        else:
-            # 清除代理环境变量
-            if "HTTP_PROXY" in os.environ:
-                del os.environ["HTTP_PROXY"]
-            if "HTTPS_PROXY" in os.environ:
-                del os.environ["HTTPS_PROXY"]
-            logger.info("代理已禁用，清除代理环境变量")
+    # 代理相关方法已移除
     
     def process_single_file(self, file_item: BatchFileItem, use_multi_ocr: bool = False, ocr_count: int = 3) -> Dict[str, Any]:
         """
@@ -155,9 +134,6 @@ class BatchProcessingService:
         start_time = time.time()
         
         try:
-            # 设置代理环境
-            self.setup_proxy_environment()
-            
             # 更新处理状态
             file_item.status = 'processing'
             file_item.save()

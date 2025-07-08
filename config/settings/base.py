@@ -197,15 +197,7 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GEMINI_BASE_URL = os.getenv('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com')
 GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-2.0-flash-exp-image-generation')
 
-# 代理配置
-USE_PROXY = os.getenv('USE_PROXY', 'false').lower() == 'true'
-HTTP_PROXY = os.getenv('HTTP_PROXY', 'http://127.0.0.1:10808')
-HTTPS_PROXY = os.getenv('HTTPS_PROXY', 'http://127.0.0.1:10808')
-
-# 调试信息
-print(f"[DEBUG] settings.base: USE_PROXY={USE_PROXY} (from env: {os.getenv('USE_PROXY', 'false')})")
-print(f"[DEBUG] settings.base: HTTP_PROXY={HTTP_PROXY}")
-print(f"[DEBUG] settings.base: HTTPS_PROXY={HTTPS_PROXY}")
+# 代理配置已移除
 
 USE_OPENAI_OCR = os.getenv('USE_OPENAI_OCR', 'False').lower() == 'true'
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
