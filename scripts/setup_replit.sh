@@ -517,41 +517,34 @@ show_startup_info() {
 start_placeholder_service() {
     log_info "启动占位服务以满足Replit端口检测..."
 
-    # 创建一个简单的Python HTTP服务器
-    cat > /tmp/placeholder_server.py << 'EOF'
-import socket
-import threading
-import time
+    # 使用Python的http.server模块创建简单服务器
+    python3 -c "
+import http.server
+import socketserver
+import signal
+import sys
+import os
 
-def handle_request(conn):
-    try:
-        data = conn.recv(1024)
-        response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 54\r\n\r\n{\"status\": \"configuring\", \"message\": \"Setup in progress\"}"
-        conn.send(response)
-    except:
-        pass
-    finally:
-        conn.close()
+class QuickHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(b'{\"status\": \"ok\", \"message\": \"configuring\"}')
 
-def run_server():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('0.0.0.0', 8000))
-    sock.listen(5)
+    def log_message(self, format, *args):
+        pass  # 禁用日志输出
 
-    while True:
-        try:
-            conn, addr = sock.accept()
-            threading.Thread(target=handle_request, args=(conn,), daemon=True).start()
-        except:
-            break
+def signal_handler(sig, frame):
+    sys.exit(0)
 
-if __name__ == "__main__":
-    run_server()
-EOF
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
-    # 启动占位服务器
-    python3 /tmp/placeholder_server.py &
+with socketserver.TCPServer(('0.0.0.0', 8000), QuickHandler) as httpd:
+    httpd.serve_forever()
+" &
+
     PLACEHOLDER_PID=$!
     echo $PLACEHOLDER_PID > /tmp/placeholder.pid
 
@@ -562,54 +555,74 @@ EOF
 
 # 停止占位服务
 stop_placeholder_service() {
-    log_info "清理端口8000..."
+    log_info "🔄 清理端口8000..."
 
     # 停止PID文件记录的进程
     if [[ -f /tmp/placeholder.pid ]]; then
         PLACEHOLDER_PID=$(cat /tmp/placeholder.pid)
+        log_info "检查占位服务进程 (PID: $PLACEHOLDER_PID)..."
         if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
             log_info "停止占位服务 (PID: $PLACEHOLDER_PID)..."
             kill -TERM $PLACEHOLDER_PID 2>/dev/null || true
-            sleep 1
+            sleep 2
             # 如果还在运行，强制杀死
             if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
+                log_warning "强制杀死占位服务 (PID: $PLACEHOLDER_PID)..."
                 kill -KILL $PLACEHOLDER_PID 2>/dev/null || true
             fi
+            log_success "占位服务已停止"
+        else
+            log_info "占位服务进程已不存在"
         fi
         rm -f /tmp/placeholder.pid
+    else
+        log_info "未找到占位服务PID文件"
     fi
 
     # 强制杀死所有占用8000端口的进程
-    log_info "强制清理端口8000上的所有进程..."
+    log_info "🔍 检查端口8000占用情况..."
 
     # 查找并杀死占用8000端口的进程
     local port_pids=$(lsof -ti:8000 2>/dev/null || true)
     if [[ -n "$port_pids" ]]; then
-        log_info "发现占用端口8000的进程: $port_pids"
+        log_warning "发现占用端口8000的进程: $port_pids"
         echo "$port_pids" | xargs -r kill -TERM 2>/dev/null || true
-        sleep 2
+        sleep 3
         # 再次检查，如果还有进程则强制杀死
         port_pids=$(lsof -ti:8000 2>/dev/null || true)
         if [[ -n "$port_pids" ]]; then
-            log_info "强制杀死顽固进程: $port_pids"
+            log_warning "强制杀死顽固进程: $port_pids"
             echo "$port_pids" | xargs -r kill -KILL 2>/dev/null || true
         fi
+    else
+        log_info "端口8000当前未被占用"
     fi
 
     # 等待端口完全释放
     local count=0
-    while lsof -ti:8000 >/dev/null 2>&1 && [[ $count -lt 10 ]]; do
-        log_info "等待端口8000释放... ($count/10)"
+    while lsof -ti:8000 >/dev/null 2>&1 && [[ $count -lt 15 ]]; do
+        log_info "⏳ 等待端口8000释放... ($count/15)"
         sleep 1
         count=$((count + 1))
     done
 
     if lsof -ti:8000 >/dev/null 2>&1; then
-        log_warning "端口8000仍被占用，但继续启动"
+        log_error "❌ 端口8000仍被占用！"
+        # 显示占用端口的进程详情
+        lsof -i:8000 2>/dev/null || true
     else
-        log_success "端口8000已释放"
+        log_success "✅ 端口8000已完全释放"
     fi
 }
+
+# 清理函数 - 脚本退出时自动调用
+cleanup() {
+    log_info "脚本退出，清理资源..."
+    stop_placeholder_service
+}
+
+# 设置退出时的清理
+trap cleanup EXIT
 
 # 主函数
 main() {
@@ -654,10 +667,13 @@ main() {
     # 准备启动服务器
     prepare_server_startup
     
+    # 停止占位服务，为真正的Django服务器让路
+    stop_placeholder_service
+
     # 显示启动信息
     show_startup_info
 
-    # 停止占位服务，为真正的Django服务器让路
+    # 再次确保占位服务已停止
     stop_placeholder_service
 }
 
