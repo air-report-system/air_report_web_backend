@@ -12,7 +12,30 @@
     # 字体支持 - 已验证可用
     pkgs.fontconfig
     pkgs.dejavu_fonts
-
+    
+    # 中文字体包
+    pkgs.noto-fonts
+    pkgs.noto-fonts-cjk
+    pkgs.noto-fonts-emoji
+    pkgs.noto-fonts-extra
+    
+    # 常用英文字体
+    pkgs.liberation_ttf
+    pkgs.source-han-sans
+    pkgs.source-han-serif
+    pkgs.ttf-dejavu
+    
+    # 字体配置工具
+    pkgs.fontconfig
+    pkgs.freetype
+    pkgs.xorg.xrdb
+    
+    # 系统字体支持
+    pkgs.corefonts
+    pkgs.vistafonts
+    pkgs.wqy_zenhei
+    pkgs.wqy_microhei
+    
     # 图像处理
     pkgs.imagemagick
 

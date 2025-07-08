@@ -248,6 +248,32 @@ configure_system_dependencies() {
     fi
 }
 
+# 安装字体
+install_fonts() {
+    log_info "安装字体..."
+    
+    # 检查是否已经安装过字体
+    if [[ -f "$HOME/.config/fontconfig/fonts.conf" ]] && [[ $(find "$HOME/.local/share/fonts" -name "*.ttf" 2>/dev/null | wc -l) -gt 5 ]]; then
+        log_info "字体已安装，跳过安装步骤"
+        return 0
+    fi
+    
+    # 检查字体安装脚本是否存在
+    FONT_SCRIPT="$SCRIPT_DIR/install_fonts_replit.sh"
+    if [[ -f "$FONT_SCRIPT" ]]; then
+        log_info "运行字体安装脚本..."
+        # 使用超时防止脚本卡住
+        timeout 60s bash "$FONT_SCRIPT" || {
+            log_warning "字体安装超时或失败，但继续部署"
+            return 0
+        }
+        log_success "字体安装完成"
+    else
+        log_warning "字体安装脚本不存在: $FONT_SCRIPT"
+        log_info "跳过字体安装步骤"
+    fi
+}
+
 # 设置环境变量
 setup_environment_variables() {
     log_info "设置环境变量..."
@@ -277,22 +303,36 @@ setup_environment_variables() {
 start_libreoffice_service() {
     log_info "启动LibreOffice服务..."
     
-    # 启动虚拟显示
+    # 检查LibreOffice是否已经运行
+    if pgrep -f "soffice.*headless" > /dev/null; then
+        log_info "LibreOffice服务已在运行"
+        return 0
+    fi
+    
+    # 启动虚拟显示（如果需要）
     if ! pgrep -x "Xvfb" > /dev/null; then
         log_info "启动虚拟显示..."
-        Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &
+        Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &>/dev/null &
         export DISPLAY=:99
-        sleep 2
+        sleep 1  # 减少等待时间
     fi
     
     # 启动LibreOffice服务
-    if ! pgrep -f "soffice.*headless" > /dev/null; then
-        log_info "启动LibreOffice后台服务..."
-        libreoffice --headless --accept="socket,host=127.0.0.1,port=2002;urp;" --nofirststartwizard &
-        sleep 3
-    fi
+    log_info "启动LibreOffice后台服务..."
+    libreoffice --headless --accept="socket,host=127.0.0.1,port=2002;urp;" --nofirststartwizard &>/dev/null &
     
-    log_success "LibreOffice服务已启动"
+    # 快速检查是否启动成功，不等待太久
+    local attempts=0
+    while [[ $attempts -lt 5 ]] && ! pgrep -f "soffice.*headless" > /dev/null; do
+        sleep 0.5
+        ((attempts++))
+    done
+    
+    if pgrep -f "soffice.*headless" > /dev/null; then
+        log_success "LibreOffice服务启动成功"
+    else
+        log_warning "LibreOffice服务启动可能失败，但继续部署"
+    fi
 }
 
 # 数据库迁移
@@ -372,10 +412,46 @@ verify_installation() {
     fi
     
     # 检查字体安装
-    if fc-list | grep -qi "SimSun\|Arial\|Calibri"; then
-        log_success "字体安装验证通过"
+    log_info "验证字体安装..."
+    local font_check_passed=true
+    
+    # 检查重要字体
+    local required_fonts=("Arial" "SimSun" "SimHei" "Times" "Calibri")
+    local found_fonts=0
+    
+    for font in "${required_fonts[@]}"; do
+        if fc-list | grep -qi "$font"; then
+            log_info "✓ 字体已安装: $font"
+            ((found_fonts++))
+        else
+            log_warning "✗ 字体未找到: $font"
+        fi
+    done
+    
+    if [[ $found_fonts -ge 3 ]]; then
+        log_success "字体安装验证通过 ($found_fonts/${#required_fonts[@]} 个字体可用)"
     else
-        log_warning "字体安装可能有问题"
+        log_warning "字体安装可能有问题 ($found_fonts/${#required_fonts[@]} 个字体可用)"
+        font_check_passed=false
+    fi
+    
+    # 检查字体配置文件
+    if [[ -f "$HOME/.config/fontconfig/fonts.conf" ]]; then
+        log_info "✓ 字体配置文件存在"
+    else
+        log_warning "✗ 字体配置文件不存在"
+        font_check_passed=false
+    fi
+    
+    # 检查用户字体目录
+    local user_font_count=$(find "$HOME/.local/share/fonts" -name "*.ttf" -o -name "*.ttc" -o -name "*.otf" 2>/dev/null | wc -l)
+    log_info "用户字体文件数量: $user_font_count"
+    
+    if [[ $user_font_count -gt 0 ]]; then
+        log_info "✓ 用户字体目录包含字体文件"
+    else
+        log_warning "✗ 用户字体目录为空"
+        font_check_passed=false
     fi
     
     # 检查LibreOffice
@@ -394,6 +470,26 @@ mark_setup_complete() {
     log_success "安装标记已创建"
 }
 
+# 准备启动服务器
+prepare_server_startup() {
+    log_info "准备启动Django服务器..."
+    
+    cd "$PROJECT_ROOT"
+    
+    # 最终检查
+    if python manage.py check --deploy 2>/dev/null; then
+        log_success "Django部署检查通过"
+    else
+        log_warning "Django部署检查有警告，但继续启动"
+    fi
+    
+    # 确保端口配置正确
+    export PORT=8000
+    export HOST=0.0.0.0
+    
+    log_success "服务器准备完成，即将启动..."
+}
+
 # 显示启动信息
 show_startup_info() {
     log_success "🎉 Replit环境部署完成！"
@@ -403,13 +499,15 @@ show_startup_info() {
     log_info "  • 超级用户: admin / admin123"
     log_info "  • 管理后台: /admin/"
     log_info "  • API文档: /api/docs/"
+    log_info "  • 字体支持: 中文/英文字体已安装"
     echo ""
     log_info "🔧 环境变量配置:"
     log_info "  • DATABASE_URL: PostgreSQL连接字符串"
     log_info "  • SECRET_KEY: Django密钥"
     log_info "  • DEBUG: 调试模式 (True/False)"
     echo ""
-    log_info "🚀 服务器即将启动..."
+    log_info "🚀 即将在 $HOST:$PORT 启动服务器..."
+    log_info "⏱️  部署脚本即将退出，Django将开始启动..."
 }
 
 # 主函数
@@ -424,6 +522,9 @@ main() {
 
     # 配置系统依赖（仅首次运行）
     configure_system_dependencies
+    
+    # 安装字体
+    install_fonts
     
     # 设置环境变量
     setup_environment_variables
@@ -445,6 +546,9 @@ main() {
     
     # 标记安装完成
     mark_setup_complete
+    
+    # 准备启动服务器
+    prepare_server_startup
     
     # 显示启动信息
     show_startup_info

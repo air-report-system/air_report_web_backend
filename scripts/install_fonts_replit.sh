@@ -81,11 +81,20 @@ check_fonts_directory() {
     fi
 }
 
-# 创建用户字体目录（Replit环境）
-create_user_fonts_directory() {
-    log_info "创建用户字体目录..."
+# 创建字体目录（支持系统级和用户级）
+create_font_directories() {
+    log_info "创建字体目录..."
     
-    # Replit环境使用用户目录
+    # 系统级字体目录（需要在Replit中创建）
+    SYSTEM_FONTS_DIR="/usr/share/fonts/truetype/custom"
+    if [[ -w "/usr/share/fonts" ]]; then
+        log_info "创建系统级字体目录: $SYSTEM_FONTS_DIR"
+        mkdir -p "$SYSTEM_FONTS_DIR"
+    else
+        log_warning "无法创建系统级字体目录，使用用户级目录"
+    fi
+    
+    # 用户级字体目录
     USER_FONTS_DIR="$HOME/.local/share/fonts"
     mkdir -p "$USER_FONTS_DIR"
     
@@ -93,7 +102,7 @@ create_user_fonts_directory() {
     FONTCONFIG_DIR="$HOME/.config/fontconfig"
     mkdir -p "$FONTCONFIG_DIR"
     
-    log_success "字体目录创建完成: $USER_FONTS_DIR"
+    log_success "字体目录创建完成"
 }
 
 # 安装字体文件
@@ -101,19 +110,65 @@ install_fonts() {
     log_info "开始安装字体文件..."
     
     USER_FONTS_DIR="$HOME/.local/share/fonts"
+    SYSTEM_FONTS_DIR="/usr/share/fonts/truetype/custom"
+    
+    # 优先尝试系统级安装
+    if [[ -w "$SYSTEM_FONTS_DIR" ]]; then
+        log_info "使用系统级字体安装..."
+        TARGET_DIR="$SYSTEM_FONTS_DIR"
+    else
+        log_info "使用用户级字体安装..."
+        TARGET_DIR="$USER_FONTS_DIR"
+    fi
     
     # 复制所有字体文件
-    log_info "复制字体文件..."
+    log_info "复制字体文件到: $TARGET_DIR"
+    local copied_count=0
+    
     find "$FONTS_DIR" -name "*.ttf" -o -name "*.ttc" -o -name "*.otf" -o -name "*.TTF" -o -name "*.TTC" -o -name "*.OTF" | while read font_file; do
         font_name=$(basename "$font_file")
-        cp "$font_file" "$USER_FONTS_DIR/"
-        log_info "已复制: $font_name"
+        if cp "$font_file" "$TARGET_DIR/" 2>/dev/null; then
+            log_info "已复制: $font_name"
+            ((copied_count++))
+        else
+            log_warning "复制失败: $font_name"
+        fi
     done
     
     # 设置字体文件权限
-    chmod 644 "$USER_FONTS_DIR"/*
+    chmod 644 "$TARGET_DIR"/* 2>/dev/null || true
     
-    log_success "字体文件复制完成"
+    log_success "字体文件复制完成 (已复制: $copied_count 个文件)"
+}
+
+# 安装系统字体（从Nix store）
+install_system_fonts() {
+    log_info "安装系统字体..."
+    
+    # 查找Nix store中的字体
+    if [[ -d "/nix/store" ]]; then
+        log_info "查找Nix store中的字体包..."
+        
+        # 创建系统字体链接目录
+        SYSTEM_FONTS_LINK_DIR="/usr/share/fonts/nix"
+        if [[ -w "/usr/share/fonts" ]]; then
+            mkdir -p "$SYSTEM_FONTS_LINK_DIR"
+            
+            # 查找并链接字体
+            find /nix/store -name "*.ttf" -o -name "*.ttc" -o -name "*.otf" 2>/dev/null | head -20 | while read font_file; do
+                font_name=$(basename "$font_file")
+                target_link="$SYSTEM_FONTS_LINK_DIR/$font_name"
+                if [[ ! -e "$target_link" ]]; then
+                    ln -sf "$font_file" "$target_link" 2>/dev/null || true
+                    log_info "已链接系统字体: $font_name"
+                fi
+            done
+        else
+            log_warning "无法创建系统字体链接目录"
+        fi
+    else
+        log_warning "Nix store不存在，跳过系统字体安装"
+    fi
 }
 
 # 创建字体配置文件
@@ -127,14 +182,38 @@ create_font_config() {
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
-    <!-- 用户字体目录 -->
+    <!-- 字体目录 -->
     <dir>~/.local/share/fonts</dir>
+    <dir>/usr/share/fonts/truetype/custom</dir>
+    <dir>/usr/share/fonts/nix</dir>
+    
+    <!-- 字体渲染设置 -->
+    <match target="font">
+        <edit name="antialias" mode="assign">
+            <bool>true</bool>
+        </edit>
+        <edit name="hinting" mode="assign">
+            <bool>true</bool>
+        </edit>
+        <edit name="rgba" mode="assign">
+            <const>rgb</const>
+        </edit>
+        <edit name="hintstyle" mode="assign">
+            <const>hintslight</const>
+        </edit>
+        <edit name="lcdfilter" mode="assign">
+            <const>lcddefault</const>
+        </edit>
+    </match>
     
     <!-- 中文字体映射 -->
     <alias>
         <family>SimSun</family>
         <prefer>
             <family>SimSun</family>
+            <family>Noto Sans CJK SC</family>
+            <family>Source Han Sans CN</family>
+            <family>WenQuanYi Zen Hei</family>
         </prefer>
     </alias>
     
@@ -142,6 +221,8 @@ create_font_config() {
         <family>宋体</family>
         <prefer>
             <family>SimSun</family>
+            <family>Noto Sans CJK SC</family>
+            <family>Source Han Sans CN</family>
         </prefer>
     </alias>
     
@@ -149,6 +230,9 @@ create_font_config() {
         <family>SimHei</family>
         <prefer>
             <family>SimHei</family>
+            <family>Noto Sans CJK SC</family>
+            <family>Source Han Sans CN</family>
+            <family>WenQuanYi Zen Hei</family>
         </prefer>
     </alias>
     
@@ -156,20 +240,8 @@ create_font_config() {
         <family>黑体</family>
         <prefer>
             <family>SimHei</family>
-        </prefer>
-    </alias>
-    
-    <alias>
-        <family>FangSong</family>
-        <prefer>
-            <family>FangSong</family>
-        </prefer>
-    </alias>
-    
-    <alias>
-        <family>仿宋</family>
-        <prefer>
-            <family>FangSong</family>
+            <family>Noto Sans CJK SC</family>
+            <family>Source Han Sans CN</family>
         </prefer>
     </alias>
     
@@ -178,6 +250,8 @@ create_font_config() {
         <family>Arial</family>
         <prefer>
             <family>Arial</family>
+            <family>Liberation Sans</family>
+            <family>DejaVu Sans</family>
         </prefer>
     </alias>
     
@@ -185,6 +259,8 @@ create_font_config() {
         <family>Times New Roman</family>
         <prefer>
             <family>Times New Roman</family>
+            <family>Liberation Serif</family>
+            <family>DejaVu Serif</family>
         </prefer>
     </alias>
     
@@ -192,14 +268,19 @@ create_font_config() {
         <family>Calibri</family>
         <prefer>
             <family>Calibri</family>
+            <family>Liberation Sans</family>
+            <family>DejaVu Sans</family>
         </prefer>
     </alias>
     
-    <!-- 默认字体回退 -->
+    <!-- 默认字体设置 -->
     <alias>
         <family>serif</family>
         <prefer>
             <family>Times New Roman</family>
+            <family>Liberation Serif</family>
+            <family>Noto Serif CJK SC</family>
+            <family>Source Han Serif CN</family>
             <family>SimSun</family>
         </prefer>
     </alias>
@@ -208,6 +289,9 @@ create_font_config() {
         <family>sans-serif</family>
         <prefer>
             <family>Arial</family>
+            <family>Liberation Sans</family>
+            <family>Noto Sans CJK SC</family>
+            <family>Source Han Sans CN</family>
             <family>SimHei</family>
         </prefer>
     </alias>
@@ -216,6 +300,9 @@ create_font_config() {
         <family>monospace</family>
         <prefer>
             <family>Courier New</family>
+            <family>Liberation Mono</family>
+            <family>DejaVu Sans Mono</family>
+            <family>Noto Sans Mono CJK SC</family>
             <family>SimSun</family>
         </prefer>
     </alias>
@@ -228,32 +315,42 @@ EOF
 # 更新字体缓存
 update_font_cache() {
     log_info "更新字体缓存..."
-    log_info "DEBUG: 用户字体目录: $HOME/.local/share/fonts"
-
-    # 检查fc-cache是否可用
+    
+    # 设置字体配置环境变量
+    export FONTCONFIG_PATH="$HOME/.config/fontconfig"
+    export FONTCONFIG_FILE="$HOME/.config/fontconfig/fonts.conf"
+    
+    # 检查并使用fc-cache
     if command -v fc-cache &> /dev/null; then
-        local fc_cache_path=$(which fc-cache)
-        log_info "DEBUG: fc-cache路径: $fc_cache_path"
-
-        log_info "DEBUG: 执行字体缓存更新..."
-        if fc-cache -fv "$HOME/.local/share/fonts" 2>&1 | while read line; do
-            log_info "DEBUG: fc-cache: $line"
-        done; then
-            log_success "字体缓存更新完成"
-        else
-            log_warning "字体缓存更新可能失败，但继续执行"
+        log_info "使用fc-cache更新字体缓存..."
+        
+        # 更新用户字体缓存
+        fc-cache -fv "$HOME/.local/share/fonts" 2>&1 | while read line; do
+            log_info "fc-cache: $line"
+        done
+        
+        # 更新系统字体缓存
+        if [[ -d "/usr/share/fonts/truetype/custom" ]]; then
+            fc-cache -fv "/usr/share/fonts/truetype/custom" 2>&1 | while read line; do
+                log_info "fc-cache (system): $line"
+            done
         fi
-
-        # 验证缓存
-        local font_count=$(fc-list 2>/dev/null | wc -l || echo "0")
-        log_info "DEBUG: 缓存后系统字体总数: $font_count"
+        
+        # 更新全局字体缓存
+        fc-cache -fv 2>&1 | while read line; do
+            log_info "fc-cache (global): $line"
+        done
+        
+        log_success "字体缓存更新完成"
     else
-        log_warning "fc-cache命令不可用，跳过缓存更新"
-        log_info "DEBUG: 检查fontconfig是否安装..."
-        if [[ -d "/nix/store" ]]; then
-            local fontconfig_packages=$(find /nix/store -maxdepth 1 -name "*fontconfig*" 2>/dev/null | wc -l)
-            log_info "DEBUG: Nix store中fontconfig包数量: $fontconfig_packages"
-        fi
+        log_warning "fc-cache不可用，尝试手动创建缓存..."
+        
+        # 创建缓存目录
+        mkdir -p "$HOME/.cache/fontconfig"
+        
+        # 检查字体数量
+        local font_count=$(find "$HOME/.local/share/fonts" -name "*.ttf" -o -name "*.ttc" -o -name "*.otf" 2>/dev/null | wc -l)
+        log_info "用户字体文件数量: $font_count"
     fi
 }
 
@@ -268,13 +365,19 @@ verify_fonts() {
         ["Arial"]="Arial"
         ["Times"]="Times New Roman"
         ["Calibri"]="Calibri"
+        ["Liberation"]="Liberation字体"
+        ["DejaVu"]="DejaVu字体"
+        ["Noto"]="Noto字体"
     )
     
-    local missing_fonts=()
     local found_fonts=()
+    local missing_fonts=()
     
-    for font_name in "${!REQUIRED_FONTS[@]}"; do
-        if command -v fc-list &> /dev/null; then
+    # 检查fc-list是否可用
+    if command -v fc-list &> /dev/null; then
+        log_info "使用fc-list检查字体..."
+        
+        for font_name in "${!REQUIRED_FONTS[@]}"; do
             if fc-list | grep -qi "$font_name"; then
                 log_success "字体已安装: ${REQUIRED_FONTS[$font_name]} ($font_name)"
                 found_fonts+=("$font_name")
@@ -282,26 +385,48 @@ verify_fonts() {
                 log_warning "字体未在系统中找到: ${REQUIRED_FONTS[$font_name]} ($font_name)"
                 missing_fonts+=("$font_name")
             fi
-        else
-            # 如果fc-list不可用，检查文件是否存在
-            if find "$HOME/.local/share/fonts" -iname "*$font_name*" | grep -q .; then
+        done
+    else
+        log_warning "fc-list不可用，检查字体文件..."
+        
+        # 检查字体文件是否存在
+        for font_name in "${!REQUIRED_FONTS[@]}"; do
+            if find "$HOME/.local/share/fonts" -iname "*$font_name*" 2>/dev/null | grep -q .; then
                 log_success "字体文件已复制: ${REQUIRED_FONTS[$font_name]} ($font_name)"
                 found_fonts+=("$font_name")
             else
                 log_warning "字体文件未找到: ${REQUIRED_FONTS[$font_name]} ($font_name)"
                 missing_fonts+=("$font_name")
             fi
-        fi
-    done
+        done
+    fi
     
-    log_info "字体安装总结:"
+    # 显示安装总结
+    log_info "=== 字体安装总结 ==="
     log_info "已安装字体数量: ${#found_fonts[@]}"
     log_info "缺失字体数量: ${#missing_fonts[@]}"
     
-    if [[ ${#missing_fonts[@]} -eq 0 ]]; then
-        log_success "所有必需字体已正确安装"
-    else
-        log_warning "部分字体可能未正确安装，但PDF生成仍可能正常工作"
+    if [[ ${#found_fonts[@]} -gt 0 ]]; then
+        log_info "已安装的字体:"
+        for font in "${found_fonts[@]}"; do
+            log_info "  ✓ ${REQUIRED_FONTS[$font]} ($font)"
+        done
+    fi
+    
+    if [[ ${#missing_fonts[@]} -gt 0 ]]; then
+        log_warning "缺失的字体:"
+        for font in "${missing_fonts[@]}"; do
+            log_warning "  ✗ ${REQUIRED_FONTS[$font]} ($font)"
+        done
+    fi
+    
+    # 检查字体总数
+    local total_user_fonts=$(find "$HOME/.local/share/fonts" -name "*.ttf" -o -name "*.ttc" -o -name "*.otf" 2>/dev/null | wc -l)
+    log_info "用户字体文件总数: $total_user_fonts"
+    
+    if command -v fc-list &> /dev/null; then
+        local total_system_fonts=$(fc-list 2>/dev/null | wc -l)
+        log_info "系统字体总数: $total_system_fonts"
     fi
 }
 
@@ -313,9 +438,14 @@ setup_environment() {
     ENV_FILE="$PROJECT_ROOT/.env.fonts"
     cat > "$ENV_FILE" << EOF
 # 字体相关环境变量
-export FONTCONFIG_PATH=\$HOME/.config/fontconfig
+export FONTCONFIG_PATH=\$HOME/.config/fontconfig:\$FONTCONFIG_PATH
 export FONTCONFIG_FILE=\$HOME/.config/fontconfig/fonts.conf
 export FONTS_DIR=\$HOME/.local/share/fonts
+export SYSTEM_FONTS_DIR=/usr/share/fonts/truetype/custom
+
+# 确保字体配置生效
+export FC_CACHE_FORCE=1
+export FC_DEBUG=1
 EOF
     
     log_success "字体环境变量文件创建完成: $ENV_FILE"
@@ -324,16 +454,19 @@ EOF
 
 # 主函数
 main() {
-    log_info "开始Replit环境字体安装..."
+    log_info "=== 开始Replit环境字体安装 ==="
     
     # 检查字体目录
     check_fonts_directory
     
-    # 创建用户字体目录
-    create_user_fonts_directory
+    # 创建字体目录
+    create_font_directories
     
-    # 安装字体文件
+    # 安装项目字体文件
     install_fonts
+    
+    # 安装系统字体
+    install_system_fonts
     
     # 创建字体配置
     create_font_config
@@ -347,10 +480,12 @@ main() {
     # 设置环境变量
     setup_environment
     
-    log_success "Replit环境字体安装完成！"
+    log_success "=== Replit环境字体安装完成！ ==="
     log_info "字体文件位置: $HOME/.local/share/fonts"
     log_info "配置文件位置: $HOME/.config/fontconfig/fonts.conf"
     log_info "环境变量文件: $PROJECT_ROOT/.env.fonts"
+    log_info ""
+    log_info "请重新启动应用程序或重新加载环境变量以使字体生效。"
 }
 
 # 执行主函数
