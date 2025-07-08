@@ -33,7 +33,7 @@ channel = "stable-23_11"
 [deployment]
 run = """
 chmod +x scripts/setup_replit.sh && ./scripts/setup_replit.sh && \
-chmod +x scripts/start_replit.sh && ./scripts/start_replit.sh
+chmod +x scripts/start_deployment.sh && ./scripts/start_deployment.sh
 """
 ignorePorts = false
 
@@ -51,8 +51,9 @@ externalPort = 80
 
 # 健康检查配置
 [deployment.healthcheck]
-path = "/"
-timeout = 30
+path = "/health"
+timeout = 15
+interval = 5
 
 # Git配置
 [gitHubImport]
