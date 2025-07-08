@@ -442,6 +442,13 @@ EOF
 update_font_cache_simple() {
     log_info "更新字体缓存..."
     
+    # 在执行 fc-cache 之前先清理可能损坏的旧缓存，避免出现 “invalid cache file”
+    log_info "清理旧的 fontconfig 缓存目录..."
+    if [[ -d "$HOME/.cache/fontconfig" ]]; then
+        rm -rf "$HOME/.cache/fontconfig" 2>/dev/null || true
+        log_debug "已删除旧缓存目录: $HOME/.cache/fontconfig"
+    fi
+
     # 设置环境变量
     export FONTCONFIG_PATH="$HOME/.config/fontconfig"
     export FONTCONFIG_FILE="$HOME/.config/fontconfig/fonts.conf"
@@ -532,6 +539,9 @@ verify_fonts_simple() {
 main() {
     log_info "=== 开始字体安装 (调试增强版本) ==="
     
+    # 清除可能遗留的调试环境变量，避免干扰 fc-list/ fc-cache 输出
+    unset FC_DEBUG
+
     # 环境检查
     check_environment
     
