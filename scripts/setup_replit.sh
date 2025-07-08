@@ -230,22 +230,8 @@ configure_system_dependencies() {
         log_warning "LibreOffice配置脚本未找到: $libreoffice_script"
     fi
 
-    # 配置字体
-    local fonts_script="$SCRIPT_DIR/install_fonts_replit.sh"
-    log_info "DEBUG: 检查字体配置脚本: $fonts_script"
-    if [[ -f "$fonts_script" ]]; then
-        log_info "配置字体文件..."
-        log_info "DEBUG: 执行字体配置脚本"
-        chmod +x "$fonts_script" 2>/dev/null || true
-        if "$fonts_script"; then
-            log_success "DEBUG: 字体配置脚本执行成功"
-        else
-            log_error "DEBUG: 字体配置脚本执行失败，返回码: $?"
-            return 1
-        fi
-    else
-        log_warning "字体配置脚本未找到: $fonts_script"
-    fi
+    # 字体配置将在后续的install_fonts步骤中处理
+    log_info "字体配置将在install_fonts步骤中处理"
 }
 
 # 安装字体
@@ -258,19 +244,32 @@ install_fonts() {
         return 0
     fi
     
-    # 检查字体安装脚本是否存在
-    FONT_SCRIPT="$SCRIPT_DIR/install_fonts_replit.sh"
-    if [[ -f "$FONT_SCRIPT" ]]; then
-        log_info "运行字体安装脚本..."
-        # 使用超时防止脚本卡住
-        timeout 60s bash "$FONT_SCRIPT" || {
-            log_warning "字体安装超时或失败，但继续部署"
-            return 0
-        }
+    # 优先使用修复版本的字体安装脚本
+    FONT_SCRIPT_FIXED="$SCRIPT_DIR/install_fonts_replit_fixed.sh"
+    FONT_SCRIPT_ORIGINAL="$SCRIPT_DIR/install_fonts_replit.sh"
+    
+    local font_script=""
+    if [[ -f "$FONT_SCRIPT_FIXED" ]]; then
+        font_script="$FONT_SCRIPT_FIXED"
+        log_info "使用修复版本的字体安装脚本..."
+    elif [[ -f "$FONT_SCRIPT_ORIGINAL" ]]; then
+        font_script="$FONT_SCRIPT_ORIGINAL"
+        log_info "使用原版字体安装脚本..."
+    else
+        log_warning "字体安装脚本不存在"
+        log_info "跳过字体安装步骤"
+        return 0
+    fi
+    
+    # 运行字体安装脚本（不使用超时，让修复版本的锁机制处理并发问题）
+    log_info "运行字体安装脚本: $(basename "$font_script")"
+    chmod +x "$font_script" 2>/dev/null || true
+    
+    if bash "$font_script"; then
         log_success "字体安装完成"
     else
-        log_warning "字体安装脚本不存在: $FONT_SCRIPT"
-        log_info "跳过字体安装步骤"
+        log_warning "字体安装失败，但继续部署"
+        return 0
     fi
 }
 
