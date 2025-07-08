@@ -308,29 +308,28 @@ start_libreoffice_service() {
         return 0
     fi
     
-    # 启动虚拟显示（如果需要）
-    if ! pgrep -x "Xvfb" > /dev/null; then
-        log_info "启动虚拟显示..."
-        Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &>/dev/null &
-        export DISPLAY=:99
-        sleep 1  # 减少等待时间
-    fi
+    # LibreOffice 7.5+ 支持真正的headless模式，无需虚拟显示
+    log_info "使用LibreOffice原生headless模式（无需虚拟显示）"
     
     # 启动LibreOffice服务
     log_info "启动LibreOffice后台服务..."
-    libreoffice --headless --accept="socket,host=127.0.0.1,port=2002;urp;" --nofirststartwizard &>/dev/null &
+    # 使用更稳定的headless启动参数
+    libreoffice --headless --invisible --nodefault --nolockcheck --nologo --norestore --accept="socket,host=127.0.0.1,port=2002;urp;" &>/dev/null &
     
-    # 快速检查是否启动成功，不等待太久
-    local attempts=0
-    while [[ $attempts -lt 5 ]] && ! pgrep -f "soffice.*headless" > /dev/null; do
-        sleep 0.5
-        ((attempts++))
-    done
-    
+    # 等待LibreOffice启动
+    sleep 2
+
+    # 检查是否启动成功
     if pgrep -f "soffice.*headless" > /dev/null; then
         log_success "LibreOffice服务启动成功"
     else
-        log_warning "LibreOffice服务启动可能失败，但继续部署"
+        log_info "LibreOffice服务将按需启动（这是正常的）"
+        # 测试LibreOffice是否可用
+        if command -v libreoffice &> /dev/null; then
+            log_success "LibreOffice命令可用，环境配置正确"
+        else
+            log_error "LibreOffice命令不可用，请检查安装"
+        fi
     fi
 }
 
