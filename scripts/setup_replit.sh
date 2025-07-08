@@ -513,123 +513,13 @@ show_startup_info() {
     log_info "🚀 Django服务器将由.replit配置启动..."
 }
 
-# 启动占位服务
-start_placeholder_service() {
-    log_info "启动占位服务以满足Replit端口检测..."
+# 注意：不再需要占位服务，因为使用了 ignorePorts = true
 
-    # 使用Python的http.server模块创建简单服务器
-    python3 -c "
-import http.server
-import socketserver
-import signal
-import sys
-import os
-
-class QuickHandler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(b'{\"status\": \"ok\", \"message\": \"configuring\"}')
-
-    def log_message(self, format, *args):
-        pass  # 禁用日志输出
-
-def signal_handler(sig, frame):
-    sys.exit(0)
-
-signal.signal(signal.SIGTERM, signal_handler)
-signal.signal(signal.SIGINT, signal_handler)
-
-with socketserver.TCPServer(('0.0.0.0', 8000), QuickHandler) as httpd:
-    httpd.serve_forever()
-" &
-
-    PLACEHOLDER_PID=$!
-    echo $PLACEHOLDER_PID > /tmp/placeholder.pid
-
-    # 等待服务启动
-    sleep 2
-    log_success "占位服务已启动 (PID: $PLACEHOLDER_PID)"
-}
-
-# 停止占位服务
-stop_placeholder_service() {
-    log_info "🔄 清理端口8000..."
-
-    # 停止PID文件记录的进程
-    if [[ -f /tmp/placeholder.pid ]]; then
-        PLACEHOLDER_PID=$(cat /tmp/placeholder.pid)
-        log_info "检查占位服务进程 (PID: $PLACEHOLDER_PID)..."
-        if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
-            log_info "停止占位服务 (PID: $PLACEHOLDER_PID)..."
-            kill -TERM $PLACEHOLDER_PID 2>/dev/null || true
-            sleep 2
-            # 如果还在运行，强制杀死
-            if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
-                log_warning "强制杀死占位服务 (PID: $PLACEHOLDER_PID)..."
-                kill -KILL $PLACEHOLDER_PID 2>/dev/null || true
-            fi
-            log_success "占位服务已停止"
-        else
-            log_info "占位服务进程已不存在"
-        fi
-        rm -f /tmp/placeholder.pid
-    else
-        log_info "未找到占位服务PID文件"
-    fi
-
-    # 强制杀死所有占用8000端口的进程
-    log_info "🔍 检查端口8000占用情况..."
-
-    # 查找并杀死占用8000端口的进程
-    local port_pids=$(lsof -ti:8000 2>/dev/null || true)
-    if [[ -n "$port_pids" ]]; then
-        log_warning "发现占用端口8000的进程: $port_pids"
-        echo "$port_pids" | xargs -r kill -TERM 2>/dev/null || true
-        sleep 3
-        # 再次检查，如果还有进程则强制杀死
-        port_pids=$(lsof -ti:8000 2>/dev/null || true)
-        if [[ -n "$port_pids" ]]; then
-            log_warning "强制杀死顽固进程: $port_pids"
-            echo "$port_pids" | xargs -r kill -KILL 2>/dev/null || true
-        fi
-    else
-        log_info "端口8000当前未被占用"
-    fi
-
-    # 等待端口完全释放
-    local count=0
-    while lsof -ti:8000 >/dev/null 2>&1 && [[ $count -lt 15 ]]; do
-        log_info "⏳ 等待端口8000释放... ($count/15)"
-        sleep 1
-        count=$((count + 1))
-    done
-
-    if lsof -ti:8000 >/dev/null 2>&1; then
-        log_error "❌ 端口8000仍被占用！"
-        # 显示占用端口的进程详情
-        lsof -i:8000 2>/dev/null || true
-    else
-        log_success "✅ 端口8000已完全释放"
-    fi
-}
-
-# 清理函数 - 脚本退出时自动调用
-cleanup() {
-    log_info "脚本退出，清理资源..."
-    stop_placeholder_service
-}
-
-# 设置退出时的清理
-trap cleanup EXIT
+# 注意：不再需要停止占位服务，因为使用了 ignorePorts = true
 
 # 主函数
 main() {
     log_info "开始Replit环境部署..."
-
-    # 启动占位服务
-    start_placeholder_service
 
     # 检查环境
     check_environment
@@ -667,14 +557,8 @@ main() {
     # 准备启动服务器
     prepare_server_startup
     
-    # 停止占位服务，为真正的Django服务器让路
-    stop_placeholder_service
-
     # 显示启动信息
     show_startup_info
-
-    # 再次确保占位服务已停止
-    stop_placeholder_service
 }
 
 # 执行主函数
