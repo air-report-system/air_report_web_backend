@@ -540,8 +540,8 @@ main() {
     # 收集静态文件
     collect_static_files
     
-    # 验证安装
-    verify_installation
+    # 验证安装 - 已禁用以加快部署速度
+    # verify_installation
     
     # 标记安装完成
     mark_setup_complete

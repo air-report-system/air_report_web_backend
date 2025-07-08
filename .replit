@@ -35,7 +35,7 @@ channel = "stable-23_11"
 run = """
 chmod +x scripts/setup_replit.sh && \
 ./scripts/setup_replit.sh && \
-gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 120 --settings=config.settings.replit
+gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 600 --settings=config.settings.replit
 """
 
 # 环境变量配置
