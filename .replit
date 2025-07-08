@@ -4,6 +4,7 @@
 # 运行配置
 run = """
 chmod +x scripts/setup_replit.sh && ./scripts/setup_replit.sh; \
+sleep 2 && \
 python manage.py runserver 0.0.0.0:8000 --settings=config.settings.replit && echo "开发服务器端口8000已就绪"
 """
 
@@ -33,6 +34,7 @@ channel = "stable-23_11"
 [deployment]
 run = """
 chmod +x scripts/setup_replit.sh && ./scripts/setup_replit.sh; \
+sleep 2 && \
 DJANGO_SETTINGS_MODULE=config.settings.replit gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 2 --timeout 600 --preload && echo "端口8000已就绪"
 """
 

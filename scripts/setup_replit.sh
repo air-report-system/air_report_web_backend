@@ -513,10 +513,65 @@ show_startup_info() {
     log_info "🚀 Django服务器将由.replit配置启动..."
 }
 
+# 启动占位服务
+start_placeholder_service() {
+    log_info "启动占位服务以满足Replit端口检测..."
+
+    # 启动一个简单的HTTP服务器作为占位
+    python3 -c "
+import http.server
+import socketserver
+import threading
+import time
+
+class PlaceholderHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'<html><body><h1>Configuring environment...</h1><p>Please wait while the application is being configured.</p></body></html>')
+
+def start_server():
+    with socketserver.TCPServer(('0.0.0.0', 8000), PlaceholderHandler) as httpd:
+        httpd.serve_forever()
+
+server_thread = threading.Thread(target=start_server, daemon=True)
+server_thread.start()
+print('Placeholder server started on port 8000')
+
+# 保持脚本运行
+while True:
+    time.sleep(1)
+" &
+
+    PLACEHOLDER_PID=$!
+    echo $PLACEHOLDER_PID > /tmp/placeholder.pid
+
+    # 等待服务启动
+    sleep 3
+    log_success "占位服务已启动 (PID: $PLACEHOLDER_PID)"
+}
+
+# 停止占位服务
+stop_placeholder_service() {
+    if [[ -f /tmp/placeholder.pid ]]; then
+        PLACEHOLDER_PID=$(cat /tmp/placeholder.pid)
+        if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
+            log_info "停止占位服务..."
+            kill $PLACEHOLDER_PID 2>/dev/null || true
+            rm -f /tmp/placeholder.pid
+            log_success "占位服务已停止"
+        fi
+    fi
+}
+
 # 主函数
 main() {
     log_info "开始Replit环境部署..."
-    
+
+    # 启动占位服务
+    start_placeholder_service
+
     # 检查环境
     check_environment
     
@@ -555,6 +610,9 @@ main() {
     
     # 显示启动信息
     show_startup_info
+
+    # 停止占位服务，为真正的Django服务器让路
+    stop_placeholder_service
 }
 
 # 执行主函数
