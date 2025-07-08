@@ -523,32 +523,38 @@ import http.server
 import socketserver
 import threading
 import time
+import signal
+import sys
 
 class PlaceholderHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
-        self.send_header('Content-type', 'text/html')
+        self.send_header('Content-type', 'application/json')
         self.end_headers()
-        self.wfile.write(b'<html><body><h1>Configuring environment...</h1><p>Please wait while the application is being configured.</p></body></html>')
+        self.wfile.write(b'{\"status\": \"configuring\", \"message\": \"Environment setup in progress\"}')
 
-def start_server():
-    with socketserver.TCPServer(('0.0.0.0', 8000), PlaceholderHandler) as httpd:
-        httpd.serve_forever()
+class PlaceholderServer:
+    def __init__(self):
+        self.httpd = None
 
-server_thread = threading.Thread(target=start_server, daemon=True)
-server_thread.start()
-print('Placeholder server started on port 8000')
+    def start(self):
+        self.httpd = socketserver.TCPServer(('0.0.0.0', 8000), PlaceholderHandler)
+        self.httpd.serve_forever()
 
-# 保持脚本运行
-while True:
-    time.sleep(1)
+    def stop(self):
+        if self.httpd:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+
+server = PlaceholderServer()
+server.start()
 " &
 
     PLACEHOLDER_PID=$!
     echo $PLACEHOLDER_PID > /tmp/placeholder.pid
 
     # 等待服务启动
-    sleep 3
+    sleep 2
     log_success "占位服务已启动 (PID: $PLACEHOLDER_PID)"
 }
 
@@ -558,11 +564,19 @@ stop_placeholder_service() {
         PLACEHOLDER_PID=$(cat /tmp/placeholder.pid)
         if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
             log_info "停止占位服务..."
-            kill $PLACEHOLDER_PID 2>/dev/null || true
+            kill -TERM $PLACEHOLDER_PID 2>/dev/null || true
+            sleep 1
+            # 如果还在运行，强制杀死
+            if kill -0 $PLACEHOLDER_PID 2>/dev/null; then
+                kill -KILL $PLACEHOLDER_PID 2>/dev/null || true
+            fi
             rm -f /tmp/placeholder.pid
             log_success "占位服务已停止"
         fi
     fi
+
+    # 额外确保端口8000被释放
+    sleep 2
 }
 
 # 主函数

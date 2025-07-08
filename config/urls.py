@@ -11,37 +11,23 @@ from apps.core.views import HealthCheckView, detailed_health_check
 
 
 def api_root(request):
-    """API根路径，返回可用的API端点"""
+    """API根路径，快速健康检查响应"""
     return JsonResponse({
-        'message': '欢迎使用检测报告管理系统API',
-        'version': '1.0.0',
-        'endpoints': {
-            'admin': '/admin/',
-            'api_docs': '/api/docs/',
-            'api_redoc': '/api/redoc/',
-            'api_schema': '/api/schema/',
-            'health': '/health/',
-            'health_detailed': '/health/detailed/',
-            'auth': '/api/v1/auth/',
-            'files': '/api/v1/files/',
-            'ocr': '/api/v1/ocr/',
-            'reports': '/api/v1/reports/',
-            'batch': '/api/v1/batch/',
-            'monthly': '/api/v1/monthly/',
-            'orders': '/api/v1/orders/',
-        }
+        'status': 'ok',
+        'message': 'API is running'
     })
 
 urlpatterns = [
-    # 根路径
+    # 根路径 - 快速健康检查
     path('', api_root, name='api-root'),
+
+    # 专门的健康检查端点
+    path('health', api_root, name='health-simple'),  # 不带斜杠
+    path('health/', HealthCheckView.as_view(), name='health-check'),
+    path('health/detailed/', detailed_health_check, name='health-check-detailed'),
 
     # 管理后台
     path('admin/', admin.site.urls),
-
-    # 健康检查
-    path('health/', HealthCheckView.as_view(), name='health-check'),
-    path('health/detailed/', detailed_health_check, name='health-check-detailed'),
 
     # API文档
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
