@@ -351,6 +351,7 @@ create_simple_font_config() {
     
     FONTCONFIG_DIR="$HOME/.config/fontconfig"
     CONFIG_FILE="$FONTCONFIG_DIR/fonts.conf"
+    USER_FONTS_DIR="$HOME/.local/share/fonts"
     
     log_debug "=== 字体配置文件创建 ==="
     log_debug "配置目录: $FONTCONFIG_DIR"
@@ -367,12 +368,14 @@ create_simple_font_config() {
     
     # 创建配置文件
     log_debug "写入字体配置..."
-    cat > "$CONFIG_FILE" << 'EOF'
+    cat > "$CONFIG_FILE" << EOF
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
-    <!-- 字体目录 -->
-    <dir>~/.local/share/fonts</dir>
+    <!-- 用户字体目录 -->
+    <dir>$USER_FONTS_DIR</dir>
+    <!-- 根据 XDG 规范的字体目录 -->
+    <dir prefix="xdg">fonts</dir>
     
     <!-- 字体渲染设置 -->
     <match target="font">
@@ -452,6 +455,7 @@ update_font_cache_simple() {
     # 设置环境变量
     export FONTCONFIG_PATH="$HOME/.config/fontconfig"
     export FONTCONFIG_FILE="$HOME/.config/fontconfig/fonts.conf"
+    export FC_CACHEDIR="$HOME/.cache/fontconfig"
     
     log_debug "=== 字体缓存更新 ==="
     log_debug "FONTCONFIG_PATH: $FONTCONFIG_PATH"
@@ -553,6 +557,20 @@ main() {
         create_simple_font_config
         update_font_cache_simple
         verify_fonts_simple
+        
+        # 生成/覆盖字体相关环境变量文件，避免遗留的 FC_DEBUG 干扰
+        ENV_FILE="$PROJECT_ROOT/.env.fonts"
+        cat > "$ENV_FILE" << EOF
+# 字体相关环境变量（由 install_fonts_replit_fixed.sh 自动生成）
+export FONTCONFIG_PATH=\$HOME/.config/fontconfig:\$FONTCONFIG_PATH
+export FONTCONFIG_FILE=$HOME/.config/fontconfig/fonts.conf
+export FC_CACHEDIR=$HOME/.cache/fontconfig
+
+# 关闭 fontconfig 调试输出
+unset FC_DEBUG
+EOF
+        log_success "已刷新字体环境变量文件: $ENV_FILE"
+        
         log_success "=== 字体安装完成！ ==="
     else
         log_error "=== 字体安装失败！ ==="
