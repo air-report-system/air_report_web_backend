@@ -315,6 +315,7 @@ class BulkFileUploadAndBatchView(APIView):
 
                     # 计算文件哈希值
                     import hashlib
+                    import time
                     file.seek(0)
                     hash_md5 = hashlib.md5()
                     for chunk in file.chunks():
@@ -324,43 +325,71 @@ class BulkFileUploadAndBatchView(APIView):
 
                     print(f"文件哈希值: {file_hash}")
 
-                    # 查找当天的现有文件（仅限当天复用，避免跨日期路径问题）
-                    today = timezone.now().date()
-                    print(f"查找当天({today})的相同文件...")
-
+                    # 查找当前用户的现有文件
                     existing_file = UploadedFile.objects.filter(
                         hash_md5=file_hash,
-                        created_at__date=today  # 仅查找当天创建的文件
+                        created_by=request.user
                     ).first()
 
-                    # 检查当天的文件是否有效
-                    if existing_file and not default_storage.exists(existing_file.file.name):
-                        print(f"当天文件记录ID={existing_file.id} 的物理文件 {existing_file.file.name} 不存在，删除记录")
-                        try:
-                            existing_file.delete()
-                            existing_file = None
-                        except Exception as delete_error:
-                            print(f"删除无效记录失败: {delete_error}")
-                            existing_file = None
-
-                    if existing_file:
-                        # 如果找到当天的有效文件，直接复用
-                        print(f"复用当天文件: {existing_file.id}")
+                    # 检查文件是否有效
+                    if (existing_file and existing_file.file and
+                        default_storage.exists(existing_file.file.name)):
+                        # 如果找到当前用户的有效文件，直接复用
+                        print(f"复用现有文件: {existing_file.id}")
                         uploaded_files.append(existing_file)
                     else:
-                        # 如果文件不存在，创建新文件记录
-                        try:
-                            uploaded_file = UploadedFile.objects.create(
-                                file=file,
-                                original_name=file.name,
-                                created_by=request.user
-                            )
-                            print(f"创建新文件: {uploaded_file.id}")
-                            uploaded_files.append(uploaded_file)
-                        except Exception as e:
-                            # 如果创建失败，记录错误并跳过该文件
-                            print(f"创建文件记录失败 {file.name}: {e}")
-                            continue
+                        # 如果当前用户存在记录但物理文件不存在，删除旧记录
+                        if existing_file:
+                            print(f"现有文件 {existing_file.id} 的物理文件不存在，删除旧记录")
+                            try:
+                                existing_file.delete()
+                            except Exception as delete_error:
+                                print(f"删除无效记录失败: {delete_error}")
+
+                        # 检查是否有其他用户的相同哈希文件存在
+                        other_existing_file = UploadedFile.objects.filter(
+                            hash_md5=file_hash
+                        ).exclude(created_by=request.user).first()
+
+                        if other_existing_file:
+                            # 如果其他用户有相同文件，为避免哈希冲突，我们重新计算哈希（加上用户ID和时间戳）
+                            unique_hash = hashlib.md5(
+                                f"{file_hash}_{request.user.id}_{int(time.time())}".encode()
+                            ).hexdigest()
+                            print(f"检测到哈希冲突，使用唯一哈希: {unique_hash}")
+
+                            # 手动创建文件记录，避免自动哈希计算
+                            try:
+                                uploaded_file = UploadedFile(
+                                    file=file,
+                                    original_name=file.name,
+                                    created_by=request.user,
+                                    hash_md5=unique_hash,
+                                    file_size=file.size,
+                                    file_type=(file.content_type.split('/')[0]
+                                              if file.content_type else 'unknown'),
+                                    mime_type=file.content_type or 'application/octet-stream'
+                                )
+                                uploaded_file.save()
+                                print(f"创建新文件(唯一哈希): {uploaded_file.id}")
+                                uploaded_files.append(uploaded_file)
+                            except Exception as e:
+                                print(f"创建文件记录失败 {file.name}: {e}")
+                                continue
+                        else:
+                            # 创建新文件记录
+                            try:
+                                uploaded_file = UploadedFile.objects.create(
+                                    file=file,
+                                    original_name=file.name,
+                                    created_by=request.user
+                                )
+                                print(f"创建新文件: {uploaded_file.id}")
+                                uploaded_files.append(uploaded_file)
+                            except Exception as e:
+                                # 如果仍然创建失败，记录错误并跳过该文件
+                                print(f"创建文件记录失败 {file.name}: {e}")
+                                continue
 
                 print(f"成功处理 {len(uploaded_files)} 个文件")
 
