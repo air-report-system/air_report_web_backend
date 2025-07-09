@@ -37,6 +37,7 @@ chmod +x scripts/*.sh && ./scripts/build_replit.sh
 run = """
 chmod +x scripts/*.sh && ./scripts/run_replit.sh
 """
+deploymentTarget = "autoscale"
 ignorePorts = false
 
 # 环境变量配置
@@ -50,7 +51,7 @@ PYTHONDONTWRITEBYTECODE = "1"
 [[ports]]
 localPort = 8000
 externalPort = 80
-exposedPort = 8000
+exposeLocalhost = true
 
 # 健康检查配置
 [deployment.healthcheck]
