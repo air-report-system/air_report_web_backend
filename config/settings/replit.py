@@ -13,7 +13,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 from .base import *
 
 # Replit环境特定设置
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+# 默认启用DEBUG模式以便调试，生产环境通过环境变量关闭
+DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
 # Replit主机配置 - 允许Replit域名
 ALLOWED_HOSTS = [

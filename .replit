@@ -1,10 +1,10 @@
 # Replit配置文件 - Django后端部署
 # 空气质量检测系统后端API
 
-# 运行配置
+# 运行配置 - 开发服务器模式
 run = """
 chmod +x scripts/setup_replit.sh && ./scripts/setup_replit.sh && \
-chmod +x scripts/start_replit.sh && ./scripts/start_replit.sh
+uv run python manage.py runserver 0.0.0.0:8000
 """
 
 # 入口点配置
