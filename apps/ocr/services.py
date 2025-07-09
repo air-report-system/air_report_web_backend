@@ -213,6 +213,7 @@ class GeminiOCRService(OCRService):
         self.model_name = getattr(settings, 'GEMINI_MODEL_NAME', 'gemini-2.0-flash-exp')
 
         # 代理设置已移除
+        self.proxies = None
 
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY未设置")
@@ -269,8 +270,7 @@ class GeminiOCRService(OCRService):
             
             # 发送请求
             logger.info(f"发送请求到 {url}")
-            logger.info(f"使用代理: {self.proxies}")
-            
+
             response = requests.post(
                 url,
                 headers=headers,
@@ -393,6 +393,7 @@ class OpenAIOCRService(OCRService):
         self.model_name = getattr(settings, 'OPENAI_MODEL_NAME', 'gpt-4-vision-preview')
 
         # 代理设置已移除
+        self.proxies = None
 
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY未设置")
@@ -442,11 +443,7 @@ class OpenAIOCRService(OCRService):
             }
             
             # 发送请求
-            import os
             print(f"[DEBUG] OpenAIOCRService.process_image: 发送请求到 {url}")
-            print(f"[DEBUG] OpenAIOCRService.process_image: 使用代理 {self.proxies}")
-            print(f"[DEBUG] OpenAIOCRService.process_image: 环境变量 HTTP_PROXY={os.environ.get('HTTP_PROXY', 'None')}")
-            print(f"[DEBUG] OpenAIOCRService.process_image: 环境变量 HTTPS_PROXY={os.environ.get('HTTPS_PROXY', 'None')}")
             response = requests.post(
                 url,
                 headers=headers,
