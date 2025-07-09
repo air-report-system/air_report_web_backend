@@ -10,15 +10,15 @@ from apps.ocr.models import OCRResult
 class BatchJob(BaseModel):
     """批量处理任务"""
     STATUS_CHOICES = [
-        ('created', '已创建'),
+        ('pending', '待处理'),
         ('running', '运行中'),
         ('completed', '已完成'),
         ('failed', '失败'),
         ('cancelled', '已取消'),
     ]
-    
+
     name = models.CharField(max_length=200, verbose_name='任务名称')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='created', verbose_name='状态')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='状态')
     total_files = models.IntegerField(default=0, verbose_name='总文件数')
     processed_files = models.IntegerField(default=0, verbose_name='已处理文件数')
     failed_files = models.IntegerField(default=0, verbose_name='失败文件数')

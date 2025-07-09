@@ -13,13 +13,14 @@ from .models import BatchJob, BatchFileItem
 logger = logging.getLogger(__name__)
 
 
-def start_batch_ocr_processing(batch_job_id):
+def start_batch_ocr_processing(batch_job_id, force_reprocess=False):
     """
     启动批量OCR处理（非异步版本，用于立即启动）
     增强错误处理和超时管理
 
     Args:
         batch_job_id: 批量任务ID
+        force_reprocess: 是否强制重新处理（不使用已有OCR结果）
     """
     import os
 
@@ -68,72 +69,86 @@ def start_batch_ocr_processing(batch_job_id):
                 file_item.save()
 
                 # 检查是否已有OCR结果（包括相同哈希值文件的OCR结果）
+                # 只有在非强制重新处理模式下才进行复用检查
                 from apps.ocr.models import OCRResult
                 from apps.files.models import UploadedFile
 
-                # 首先检查当前文件的OCR结果
-                existing_ocr = OCRResult.objects.filter(
-                    file=file_item.file,
-                    status__in=['pending', 'processing', 'completed']
-                ).first()
+                should_reuse = not force_reprocess
+                existing_ocr = None
 
-                # 如果当前文件没有完成的OCR结果，查找相同哈希值文件的OCR结果
-                if not (existing_ocr and existing_ocr.status == 'completed'):
-                    # 查找相同哈希值的文件
-                    same_hash_files = UploadedFile.objects.filter(
-                        hash_md5=file_item.file.hash_md5
-                    ).exclude(id=file_item.file.id)
+                if should_reuse:
+                    # 首先检查当前文件的OCR结果
+                    existing_ocr = OCRResult.objects.filter(
+                        file=file_item.file,
+                        status__in=['pending', 'processing', 'completed']
+                    ).first()
 
-                    if same_hash_files.exists():
-                        # 查找这些文件中已完成的OCR结果
-                        reusable_ocr = OCRResult.objects.filter(
-                            file__in=same_hash_files,
-                            status='completed'
-                        ).order_by('-created_at').first()
+                    # 如果当前文件没有完成的OCR结果，查找相同哈希值文件的OCR结果
+                    if not (existing_ocr and existing_ocr.status == 'completed'):
+                        # 查找相同哈希值的文件
+                        same_hash_files = UploadedFile.objects.filter(
+                            hash_md5=file_item.file.hash_md5
+                        ).exclude(id=file_item.file.id)
 
-                        if reusable_ocr:
-                            # 复制OCR结果到当前文件
-                            new_ocr = OCRResult.objects.create(
-                                file=file_item.file,
-                                status='completed',
-                                phone=reusable_ocr.phone,
-                                date=reusable_ocr.date,
-                                temperature=reusable_ocr.temperature,
-                                humidity=reusable_ocr.humidity,
-                                check_type=reusable_ocr.check_type,
-                                points_data=reusable_ocr.points_data,
-                                raw_response=reusable_ocr.raw_response,
-                                confidence_score=reusable_ocr.confidence_score,
-                                ocr_attempts=reusable_ocr.ocr_attempts,
-                                has_conflicts=reusable_ocr.has_conflicts,
-                                conflict_details=reusable_ocr.conflict_details,
-                                processing_started_at=timezone.now(),
-                                processing_completed_at=timezone.now(),
-                                created_by=batch_job.created_by
-                            )
-                            file_item.ocr_result = new_ocr
-                            file_item.status = 'completed'
-                            file_item.save()
-                            print(f"复用相同文件OCR结果: {file_item.file.original_name} (来源文件ID: {reusable_ocr.file.id})")
-                            continue
+                        if same_hash_files.exists():
+                            # 查找这些文件中已完成的OCR结果
+                            reusable_ocr = OCRResult.objects.filter(
+                                file__in=same_hash_files,
+                                status='completed'
+                            ).order_by('-created_at').first()
 
-                if existing_ocr and existing_ocr.status == 'completed':
-                    # 如果已有完成的OCR结果，直接使用
-                    file_item.ocr_result = existing_ocr
-                    file_item.status = 'completed'
-                    file_item.save()
-                    print(f"复用现有OCR结果: {file_item.file.original_name}")
-                else:
-                    # 创建新的OCR结果记录
-                    if not existing_ocr:
-                        ocr_result = OCRResult.objects.create(
-                            file=file_item.file,
-                            status='pending',
-                            ocr_attempts=ocr_count if use_multi_ocr else 1,
-                            created_by=batch_job.created_by
-                        )
-                        file_item.ocr_result = ocr_result
+                            if reusable_ocr:
+                                # 复制OCR结果到当前文件
+                                new_ocr = OCRResult.objects.create(
+                                    file=file_item.file,
+                                    status='completed',
+                                    phone=reusable_ocr.phone,
+                                    date=reusable_ocr.date,
+                                    temperature=reusable_ocr.temperature,
+                                    humidity=reusable_ocr.humidity,
+                                    check_type=reusable_ocr.check_type,
+                                    points_data=reusable_ocr.points_data,
+                                    raw_response=reusable_ocr.raw_response,
+                                    confidence_score=reusable_ocr.confidence_score,
+                                    ocr_attempts=reusable_ocr.ocr_attempts,
+                                    has_conflicts=reusable_ocr.has_conflicts,
+                                    conflict_details=reusable_ocr.conflict_details,
+                                    processing_started_at=timezone.now(),
+                                    processing_completed_at=timezone.now(),
+                                    created_by=batch_job.created_by
+                                )
+                                file_item.ocr_result = new_ocr
+                                file_item.status = 'completed'
+                                file_item.save()
+                                print(f"复用相同文件OCR结果: {file_item.file.original_name} (来源文件ID: {reusable_ocr.file.id})")
+                                continue
+
+                    if existing_ocr and existing_ocr.status == 'completed':
+                        # 如果已有完成的OCR结果，直接使用
+                        file_item.ocr_result = existing_ocr
+                        file_item.status = 'completed'
                         file_item.save()
+                        print(f"复用现有OCR结果: {file_item.file.original_name}")
+                        continue
+
+                # 强制重新处理或没有可复用的结果，进行新的OCR处理
+                if force_reprocess:
+                    print(f"强制重新识别: {file_item.file.original_name}")
+                    # 如果存在旧的OCR结果，删除它们以确保重新处理
+                    if existing_ocr:
+                        existing_ocr.delete()
+                        existing_ocr = None
+
+                # 创建新的OCR结果记录
+                if not existing_ocr:
+                    ocr_result = OCRResult.objects.create(
+                        file=file_item.file,
+                        status='pending',
+                        ocr_attempts=ocr_count if use_multi_ocr else 1,
+                        created_by=batch_job.created_by
+                    )
+                    file_item.ocr_result = ocr_result
+                    file_item.save()
 
                     # 调用现有的OCR处理任务 - 增强错误处理
                     from apps.ocr.tasks import process_image_ocr
@@ -202,7 +217,8 @@ def start_batch_ocr_processing(batch_job_id):
                                 file_item.file.id,
                                 batch_job.created_by.id,
                                 use_multi_ocr,
-                                ocr_count
+                                ocr_count,
+                                force_reprocess
                             )
                             print(f"启动OCR任务: {task.id} for {file_item.file.original_name}")
 
@@ -270,12 +286,13 @@ def update_batch_job_progress(batch_job):
 
 
 @shared_task(bind=True)
-def start_batch_processing(self, batch_job_id):
+def start_batch_processing(self, batch_job_id, force_reprocess=False):
     """
     启动批量处理任务
-    
+
     Args:
         batch_job_id: 批量任务ID
+        force_reprocess: 是否强制重新处理（不使用已有OCR结果）
     """
     try:
         # 获取批量任务
@@ -309,10 +326,11 @@ def start_batch_processing(self, batch_job_id):
         # 创建子任务组
         job_group = group(
             process_batch_item.s(
-                item.id, 
-                batch_job_id, 
-                use_multi_ocr, 
-                ocr_count
+                item.id,
+                batch_job_id,
+                use_multi_ocr,
+                ocr_count,
+                force_reprocess
             ) for item in file_items
         )
         
@@ -348,7 +366,7 @@ def start_batch_processing(self, batch_job_id):
 
 
 @shared_task(bind=True, max_retries=3)
-def process_batch_item(self, item_id, batch_job_id, use_multi_ocr=False, ocr_count=3):
+def process_batch_item(self, item_id, batch_job_id, use_multi_ocr=False, ocr_count=3, force_reprocess=False):
     """
     处理批量文件项 - 移植自GUI项目的批量处理逻辑
 
@@ -357,6 +375,7 @@ def process_batch_item(self, item_id, batch_job_id, use_multi_ocr=False, ocr_cou
         batch_job_id: 批量任务ID
         use_multi_ocr: 是否使用多重OCR
         ocr_count: OCR次数
+        force_reprocess: 是否强制重新处理（不使用已有OCR结果）
     """
     start_time = time.time()
 
@@ -380,7 +399,8 @@ def process_batch_item(self, item_id, batch_job_id, use_multi_ocr=False, ocr_cou
             file_item.file.id,
             user_id,
             use_multi_ocr,
-            ocr_count
+            ocr_count,
+            force_reprocess
         )
 
         # 等待OCR任务完成

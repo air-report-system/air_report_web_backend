@@ -17,21 +17,27 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3)
-def process_image_ocr(self, file_id, user_id, use_multi_ocr=False, ocr_count=3):
+def process_image_ocr(self, file_id, user_id, use_multi_ocr=False, ocr_count=3, force_reprocess=False):
     """
     处理图片OCR任务
-    
+
     Args:
         file_id: 文件ID
         user_id: 用户ID
         use_multi_ocr: 是否使用多重OCR
         ocr_count: OCR次数
+        force_reprocess: 是否强制重新处理（不使用已有OCR结果）
     """
     try:
         # 获取文件和OCR结果记录
         file_obj = UploadedFile.objects.get(id=file_id)
         ocr_result = OCRResult.objects.filter(file=file_obj).first()
-        
+
+        # 如果强制重新处理，删除现有的OCR结果
+        if force_reprocess and ocr_result:
+            ocr_result.delete()
+            ocr_result = None
+
         if not ocr_result:
             ocr_result = OCRResult.objects.create(
                 file=file_obj,
@@ -39,7 +45,7 @@ def process_image_ocr(self, file_id, user_id, use_multi_ocr=False, ocr_count=3):
                 ocr_attempts=ocr_count if use_multi_ocr else 1,
                 created_by_id=user_id
             )
-        
+
         # 更新处理状态
         ocr_result.status = 'processing'
         ocr_result.processing_started_at = timezone.now()

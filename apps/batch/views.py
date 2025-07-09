@@ -40,7 +40,11 @@ class BatchJobViewSet(viewsets.ModelViewSet):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
-        return queryset.prefetch_related('batchfileitem_set__file').order_by('-created_at')
+        return queryset.prefetch_related(
+            'batchfileitem_set__file',
+            'batchfileitem_set__ocr_result',
+            'batchfileitem_set__ocr_result__contactinfo'
+        ).order_by('-created_at')
 
     def get_serializer_class(self):
         """根据动作选择序列化器"""
@@ -95,19 +99,52 @@ class BatchJobViewSet(viewsets.ModelViewSet):
                     ocr_result=None
                 )
 
-            # TODO: 调用异步批量处理任务
-            # task = start_batch_processing.delay(batch_job.id)
+            # 启动后台批量处理
+            try:
+                import threading
+                from apps.batch.tasks import start_batch_ocr_processing
 
-            # 更新任务状态
-            batch_job.status = 'running'
-            batch_job.save()
+                def run_batch_processing():
+                    try:
+                        print(f"后台启动批量OCR处理，任务ID: {batch_job.id}, 强制重新处理: {force_restart}")
+                        start_batch_ocr_processing(batch_job.id, force_reprocess=force_restart)
+                        print(f"批量OCR处理完成，任务ID: {batch_job.id}")
+                    except Exception as e:
+                        print(f"批量OCR处理失败: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # 更新任务状态为失败
+                        try:
+                            batch_job.refresh_from_db()
+                            batch_job.status = 'failed'
+                            batch_job.save()
+                        except Exception as save_error:
+                            print(f"保存失败状态时出错: {save_error}")
 
-            return Response({
-                'message': '批量任务已启动',
-                'batch_job_id': batch_job.id,
-                # 'task_id': task.id,
-                'status': 'running'
-            }, status=status.HTTP_202_ACCEPTED)
+                # 使用后台线程处理，避免阻塞前端请求
+                thread = threading.Thread(target=run_batch_processing)
+                thread.daemon = True
+                thread.start()
+
+                # 立即更新任务状态为运行中
+                batch_job.status = 'running'
+                batch_job.started_at = timezone.now()
+                batch_job.save()
+
+                print(f"批量任务已在后台启动，任务ID: {batch_job.id}")
+
+                return Response({
+                    'message': '批量任务已在后台启动',
+                    'batch_job_id': batch_job.id,
+                    'status': 'running',
+                    'total_files': batch_job.total_files,
+                    'note': '任务正在后台处理，请通过进度接口查询状态'
+                }, status=status.HTTP_202_ACCEPTED)
+
+            except Exception as e:
+                return Response({
+                    'error': f'启动批量任务失败: {str(e)}'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -142,15 +179,75 @@ class BatchJobViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="获取任务进度",
-        description="获取批量任务的详细进度信息",
+        description="获取批量任务的详细进度信息，包括文件列表和处理状态",
         responses={200: BatchJobSerializer}
     )
     @action(detail=True, methods=['get'])
     def progress(self, request, pk=None):
-        """获取任务进度"""
+        """获取任务进度（包含文件详情）"""
         batch_job = self.get_object()
+
+        # 刷新任务状态
+        batch_job.refresh_from_db()
+
+        # 获取文件项的详细信息
+        file_items = batch_job.batchfileitem_set.select_related(
+            'file', 'ocr_result'
+        ).order_by('processing_order')
+
+        # 构建响应数据
         serializer = BatchJobSerializer(batch_job)
-        return Response(serializer.data)
+        response_data = serializer.data
+
+        # 添加实时统计信息
+        response_data.update({
+            'real_time_stats': {
+                'pending_count': file_items.filter(status='pending').count(),
+                'processing_count': file_items.filter(status='processing').count(),
+                'completed_count': file_items.filter(status='completed').count(),
+                'failed_count': file_items.filter(status='failed').count(),
+                'skipped_count': file_items.filter(status='skipped').count(),
+            },
+            'can_start': batch_job.status in ['pending', 'failed'],
+            'can_cancel': batch_job.status == 'running',
+            'is_completed': batch_job.status == 'completed',
+            'last_updated': timezone.now().isoformat()
+        })
+
+        return Response(response_data)
+
+    @extend_schema(
+        summary="获取文件项详情",
+        description="获取批量任务中单个文件的详细处理信息",
+        responses={200: BatchFileItemSerializer}
+    )
+    @action(detail=True, methods=['get'], url_path='files/(?P<file_item_id>[^/.]+)')
+    def get_file_item(self, request, pk=None, file_item_id=None):
+        """获取单个文件项的详细信息"""
+        batch_job = self.get_object()
+
+        try:
+            file_item = batch_job.batchfileitem_set.select_related(
+                'file', 'ocr_result'
+            ).get(id=file_item_id)
+
+            serializer = BatchFileItemSerializer(file_item)
+            response_data = serializer.data
+
+            # 添加额外信息
+            response_data.update({
+                'can_retry': file_item.status == 'failed',
+                'has_ocr_result': file_item.ocr_result is not None,
+                'file_url': file_item.file.file.url if file_item.file.file else None,
+                'last_updated': timezone.now().isoformat()
+            })
+
+            return Response(response_data)
+
+        except BatchFileItem.DoesNotExist:
+            return Response({
+                'error': '文件项不存在'
+            }, status=status.HTTP_404_NOT_FOUND)
 
     @extend_schema(
         summary="重试失败的文件",
@@ -195,6 +292,152 @@ class BatchJobViewSet(viewsets.ModelViewSet):
             # 'task_id': task.id,
             'status': 'running'
         }, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        summary="重新识别指定文件",
+        description="强制重新识别批量任务中的指定文件，不使用已有OCR结果",
+        responses={202: {'description': '重新识别已开始'}}
+    )
+    @action(detail=True, methods=['post'], url_path='reprocess_file/(?P<file_item_id>[^/.]+)')
+    def reprocess_file(self, request, pk=None, file_item_id=None):
+        """重新识别指定文件"""
+        batch_job = self.get_object()
+
+        try:
+            file_item = BatchFileItem.objects.get(
+                id=file_item_id,
+                batch_job=batch_job
+            )
+        except BatchFileItem.DoesNotExist:
+            return Response({
+                'error': '文件项不存在'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # 检查文件项状态
+        if file_item.status == 'processing':
+            return Response({
+                'error': '文件正在处理中，请稍后再试'
+            }, status=status.HTTP_409_CONFLICT)
+
+        # 重置文件项状态，准备重新处理
+        file_item.status = 'pending'
+        file_item.error_message = ''
+        file_item.processing_time_seconds = None
+        # 删除现有的OCR结果以确保重新处理
+        if file_item.ocr_result:
+            file_item.ocr_result.delete()
+            file_item.ocr_result = None
+        file_item.save()
+
+        # 启动单个文件的重新处理
+        try:
+            from apps.batch.tasks import process_batch_item
+            import os
+
+            # 获取批量任务设置
+            settings = batch_job.settings or {}
+            use_multi_ocr = settings.get('use_multi_ocr', False)
+            ocr_count = settings.get('ocr_count', 3)
+
+            # 获取文件名（增强错误处理）
+            try:
+                file_name = file_item.file.original_name if file_item.file else 'Unknown'
+            except Exception:
+                file_name = 'Unknown'
+
+            # 统一使用同步处理，避免Celery嵌套调用问题
+            print(f"同步处理单个文件重新识别: {file_name}")
+            
+            # 更新文件项状态为处理中
+            file_item.status = 'processing'
+            file_item.save()
+            
+            # 使用同步处理
+            try:
+                from apps.ocr.tasks import process_image_ocr_sync
+                
+                # 获取用户ID（更安全的方式）
+                user_id = None
+                if hasattr(file_item, 'created_by_id') and file_item.created_by_id:
+                    user_id = file_item.created_by_id
+                elif hasattr(batch_job, 'created_by_id') and batch_job.created_by_id:
+                    user_id = batch_job.created_by_id
+                else:
+                    user_id = 1  # 默认用户ID
+                
+                print(f"开始同步OCR处理: file_id={file_item.file.id}, user_id={user_id}")
+                
+                # 同步处理OCR
+                result = process_image_ocr_sync(
+                    file_item.file.id,
+                    user_id,
+                    use_multi_ocr,
+                    ocr_count
+                )
+                
+                print(f"OCR处理结果: {result}")
+                
+                # 更新文件项状态
+                if result and result.get('status') == 'success':
+                    file_item.status = 'completed'
+                    # 关联OCR结果
+                    if 'ocr_result_id' in result and result['ocr_result_id']:
+                        from apps.ocr.models import OCRResult
+                        try:
+                            ocr_result_obj = OCRResult.objects.get(id=result['ocr_result_id'])
+                            file_item.ocr_result = ocr_result_obj
+                            print(f"OCR结果关联成功: {ocr_result_obj.id}")
+                        except OCRResult.DoesNotExist:
+                            print(f"OCR结果不存在: {result['ocr_result_id']}")
+                else:
+                    file_item.status = 'failed'
+                    error_msg = result.get('error', '处理失败') if result else '处理失败'
+                    file_item.error_message = error_msg
+                    print(f"OCR处理失败: {error_msg}")
+                
+                # 保存文件项状态
+                file_item.save()
+                print(f"文件项状态已更新: {file_item.status}")
+                
+                # 构建返回结果（确保所有字段都存在）
+                response_data = {
+                    'message': f'重新识别完成: {file_name}',
+                    'file_item_id': file_item.id,
+                    'status': file_item.status,
+                    'result': result or {'status': 'error', 'error': '处理失败'}
+                }
+                
+                print(f"返回响应: {response_data}")
+                
+                return Response(response_data, status=status.HTTP_200_OK)
+                
+            except Exception as sync_error:
+                print(f"同步处理异常: {str(sync_error)}")
+                import traceback
+                traceback.print_exc()
+                
+                try:
+                    file_item.status = 'failed'
+                    file_item.error_message = str(sync_error)
+                    file_item.save()
+                    print(f"文件项错误状态已保存: {file_item.status}")
+                except Exception as save_error:
+                    print(f"保存文件项错误状态失败: {str(save_error)}")
+                
+                return Response({
+                    'error': f'同步处理失败: {str(sync_error)}',
+                    'file_item_id': file_item.id,
+                    'status': 'failed'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as e:
+            print(f"重新识别失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+            return Response({
+                'error': f'启动重新识别失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class CreateBatchJobView(APIView):
@@ -286,12 +529,12 @@ class BulkFileUploadAndBatchView(APIView):
 
     @extend_schema(
         summary="批量上传文件并创建批量任务",
-        description="批量上传图片文件并自动创建批量处理任务",
+        description="批量上传图片文件并创建批量处理任务（仅上传，不立即处理）",
         request=BulkFileUploadAndBatchSerializer,
         responses={201: BatchJobSerializer}
     )
     def post(self, request):
-        """批量上传文件并创建批量任务"""
+        """批量上传文件并创建批量任务（解耦模式）"""
         print("=== 批量上传POST请求开始 ===")
         print(f"收到批量上传请求，用户: {request.user}")
         print(f"请求数据键: {list(request.data.keys())}")
@@ -305,7 +548,8 @@ class BulkFileUploadAndBatchView(APIView):
                 batch_name = serializer.validated_data['batch_name']
                 use_multi_ocr = serializer.validated_data.get('use_multi_ocr', False)
                 ocr_count = serializer.validated_data.get('ocr_count', 3)
-                auto_start = serializer.validated_data.get('auto_start', True)
+                # 强制设置为不自动启动，让前端控制处理时机
+                auto_start = False
 
                 # 先上传文件，处理重复文件（在事务外处理）
                 uploaded_files = []
@@ -425,53 +669,11 @@ class BulkFileUploadAndBatchView(APIView):
 
                     BatchFileItem.objects.bulk_create(file_items)
 
-                    # 如果设置了自动开始，启动任务
-                    if auto_start:
-                        print(f"准备启动批量OCR处理，任务ID: {batch_job.id}")
-                        # 启动批量OCR处理
-                        from apps.batch.tasks import start_batch_ocr_processing
-                        batch_job.status = 'running'
-                        batch_job.save()
-
-                        # 异步启动OCR处理 - 增强错误处理
-                        try:
-                            print(f"调用start_batch_ocr_processing...")
-                            # 在部署环境中使用更保守的处理方式
-                            import threading
-
-                            def run_batch_processing():
-                                try:
-                                    start_batch_ocr_processing(batch_job.id)
-                                    print(f"批量OCR处理启动成功")
-                                except Exception as e:
-                                    print(f"批量OCR处理失败: {e}")
-                                    import traceback
-                                    traceback.print_exc()
-                                    # 更新任务状态为失败
-                                    try:
-                                        batch_job.refresh_from_db()
-                                        batch_job.status = 'failed'
-                                        batch_job.save()
-                                    except Exception as save_error:
-                                        print(f"保存失败状态时出错: {save_error}")
-
-                            # 在部署环境中使用线程来避免阻塞主请求
-                            if os.getenv('REPL_DEPLOYMENT') == '1':
-                                thread = threading.Thread(target=run_batch_processing)
-                                thread.daemon = True
-                                thread.start()
-                                print(f"批量OCR处理已在后台线程中启动")
-                            else:
-                                run_batch_processing()
-
-                        except Exception as e:
-                            print(f"启动批量OCR处理失败: {e}")
-                            import traceback
-                            traceback.print_exc()
-                            batch_job.status = 'failed'
-                            batch_job.save()
-                    else:
-                        print(f"auto_start=False，不自动启动OCR处理")
+                    # 解耦模式：不自动启动处理，让前端控制处理时机
+                    print(f"批量任务创建完成，任务ID: {batch_job.id}")
+                    print(f"任务状态: {batch_job.status} (pending - 等待前端启动处理)")
+                    print(f"文件数量: {batch_job.total_files}")
+                    print("解耦模式：前端可通过 /batch/jobs/{id}/start/ 启动处理")
 
                 # 返回创建的批量任务
                 response_serializer = BatchJobSerializer(batch_job)
