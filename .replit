@@ -53,9 +53,9 @@ localPort = 8000
 externalPort = 80
 exposeLocalhost = true
 
-# 健康检查配置
+# 健康检查配置 - Autoscale默认检查根路径
 [deployment.healthcheck]
-path = "/health"
+path = "/"
 timeout = 10
 interval = 3
 

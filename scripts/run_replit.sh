@@ -61,22 +61,20 @@ fi
 
 log_info "启动Gunicorn服务器..."
 log_info "• 绑定地址: 0.0.0.0:8000"
-log_info "• Workers: 3"
-log_info "• 超时: 300秒"
-log_info "• 模式: 生产优化"
+log_info "• Workers: 2"
+log_info "• 超时: 60秒"
+log_info "• 模式: 快速启动优化"
 
-# 启动Gunicorn - 3个worker，快速响应配置
+# 启动Gunicorn - 2个worker，快速启动配置
 exec gunicorn config.wsgi:application \
     --bind 0.0.0.0:8000 \
-    --workers 3 \
+    --workers 2 \
     --worker-class sync \
-    --timeout 120 \
-    --graceful-timeout 15 \
+    --timeout 60 \
+    --graceful-timeout 10 \
     --keep-alive 2 \
-    --max-requests 500 \
-    --max-requests-jitter 50 \
-    --worker-tmp-dir /dev/shm \
-    --preload \
+    --max-requests 200 \
+    --max-requests-jitter 20 \
     --access-logfile - \
     --error-logfile - \
     --log-level info
