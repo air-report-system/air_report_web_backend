@@ -16,6 +16,11 @@ from .base import *
 # 默认启用DEBUG模式以便调试，生产环境通过环境变量关闭
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
+# 强制启用DEBUG模式以确保媒体文件服务正常工作
+if not DEBUG:
+    print("⚠️  强制启用DEBUG模式以确保媒体文件服务正常工作")
+    DEBUG = True
+
 # Replit主机配置 - 允许Replit域名
 ALLOWED_HOSTS = [
     '*',  # Replit需要允许所有主机
