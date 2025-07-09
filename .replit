@@ -50,6 +50,7 @@ PYTHONDONTWRITEBYTECODE = "1"
 [[ports]]
 localPort = 8000
 externalPort = 80
+exposedPort = 8000
 
 # 健康检查配置
 [deployment.healthcheck]
