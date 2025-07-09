@@ -323,20 +323,36 @@ class BulkFileUploadAndBatchView(APIView):
                     print(f"文件哈希值: {file_hash}")
 
                     # 查找现有文件（允许跨用户复用相同文件）
-                    existing_file = UploadedFile.objects.filter(
+                    existing_files = UploadedFile.objects.filter(
                         hash_md5=file_hash
-                    ).first()
+                    ).order_by('-created_at')  # 按创建时间倒序，优先使用最新的
 
-                    # 如果找到记录但物理文件缺失，则视为不存在，重新上传
+                    # 查找有效的现有文件（物理文件存在的记录）
                     from django.core.files.storage import default_storage
-                    if existing_file and not default_storage.exists(existing_file.file.name):
-                        print(f"记录ID={existing_file.id} 的物理文件 {existing_file.file.name} 不存在，忽略此记录")
-                        existing_file = None
+                    valid_existing_file = None
+                    invalid_files_to_delete = []
 
-                    if existing_file:
-                        # 如果文件已存在，直接使用现有文件
-                        print(f"找到现有文件: {existing_file.id}")
-                        uploaded_files.append(existing_file)
+                    for existing_file in existing_files:
+                        if default_storage.exists(existing_file.file.name):
+                            print(f"找到有效的现有文件: ID={existing_file.id}, 路径={existing_file.file.name}")
+                            valid_existing_file = existing_file
+                            break
+                        else:
+                            print(f"发现无效文件记录: ID={existing_file.id}, 路径={existing_file.file.name}")
+                            invalid_files_to_delete.append(existing_file)
+
+                    # 删除所有无效的文件记录
+                    for invalid_file in invalid_files_to_delete:
+                        try:
+                            print(f"删除无效文件记录: ID={invalid_file.id}")
+                            invalid_file.delete()
+                        except Exception as delete_error:
+                            print(f"删除无效记录失败: {delete_error}")
+
+                    if valid_existing_file:
+                        # 如果找到有效的现有文件，直接使用
+                        print(f"复用现有文件: {valid_existing_file.id}")
+                        uploaded_files.append(valid_existing_file)
                     else:
                         # 如果文件不存在，创建新文件记录
                         try:
@@ -348,18 +364,8 @@ class BulkFileUploadAndBatchView(APIView):
                             print(f"创建新文件: {uploaded_file.id}")
                             uploaded_files.append(uploaded_file)
                         except Exception as e:
-                            # 如果创建失败，可能是因为重复，再次查找现有文件
+                            # 如果创建失败，记录错误并跳过该文件
                             print(f"创建文件记录失败 {file.name}: {e}")
-                            if 'UNIQUE constraint failed' in str(e):
-                                # 重新查找现有文件（可能是并发创建导致的）
-                                existing_file_retry = UploadedFile.objects.filter(
-                                    hash_md5=file_hash
-                                ).first()
-                                if existing_file_retry:
-                                    print(f"重试后找到现有文件: {existing_file_retry.id}")
-                                    uploaded_files.append(existing_file_retry)
-                                else:
-                                    print(f"重试后仍未找到文件，跳过: {file.name}")
                             continue
 
                 print(f"成功处理 {len(uploaded_files)} 个文件")
