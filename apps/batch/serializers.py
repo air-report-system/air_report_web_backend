@@ -29,19 +29,20 @@ class BatchFileItemSerializer(serializers.ModelSerializer):
     def get_file_path(self, obj):
         """获取文件URL路径"""
         if obj.file and obj.file.file:
-            # 在开发环境下，返回相对路径以便前端代理
-            # 在生产环境下，返回完整URL
+            # 确保返回数据库中存储的实际文件路径，而不是基于当前日期生成的路径
+            file_url = obj.file.file.url
+
             request = self.context.get('request')
             if request and hasattr(request, 'build_absolute_uri'):
                 # 检查是否为开发环境（localhost）
                 host = request.get_host()
                 if 'localhost' in host or '127.0.0.1' in host:
                     # 开发环境：返回相对路径，让前端代理处理
-                    return obj.file.file.url
+                    return file_url
                 else:
                     # 生产环境：返回完整URL
-                    return request.build_absolute_uri(obj.file.file.url)
-            return obj.file.file.url
+                    return request.build_absolute_uri(file_url)
+            return file_url
         return None
 
 

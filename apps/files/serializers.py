@@ -11,18 +11,37 @@ class UploadedFileSerializer(serializers.ModelSerializer):
     file_extension = serializers.ReadOnlyField()
     is_image = serializers.ReadOnlyField()
     is_document = serializers.ReadOnlyField()
-    
+    file_url = serializers.SerializerMethodField()
+
     class Meta:
         model = UploadedFile
         fields = [
-            'id', 'file', 'original_name', 'file_size', 'file_type', 
+            'id', 'file', 'file_url', 'original_name', 'file_size', 'file_type',
             'mime_type', 'hash_md5', 'is_processed', 'file_extension',
             'is_image', 'is_document', 'created_at', 'updated_at'
         ]
         read_only_fields = [
-            'id', 'file_size', 'file_type', 'mime_type', 'hash_md5', 
+            'id', 'file_size', 'file_type', 'mime_type', 'hash_md5',
             'is_processed', 'created_at', 'updated_at'
         ]
+
+    def get_file_url(self, obj):
+        """获取文件URL路径"""
+        if obj.file:
+            file_url = obj.file.url
+
+            request = self.context.get('request')
+            if request and hasattr(request, 'build_absolute_uri'):
+                # 检查是否为开发环境（localhost）
+                host = request.get_host()
+                if 'localhost' in host or '127.0.0.1' in host:
+                    # 开发环境：返回相对路径，让前端代理处理
+                    return file_url
+                else:
+                    # 生产环境：返回完整URL
+                    return request.build_absolute_uri(file_url)
+            return file_url
+        return None
     
     def validate_file(self, value):
         """验证上传文件"""

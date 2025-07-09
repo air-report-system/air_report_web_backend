@@ -38,12 +38,13 @@ class OCRResultSerializer(serializers.ModelSerializer):
     """OCR结果序列化器"""
     contact_info = ContactInfoSerializer(source='contactinfo', read_only=True)
     file_name = serializers.CharField(source='file.original_name', read_only=True)
+    file_url = serializers.SerializerMethodField()
     processing_duration = serializers.ReadOnlyField()
-    
+
     class Meta:
         model = OCRResult
         fields = [
-            'id', 'file', 'file_name', 'status', 'phone', 'date', 
+            'id', 'file', 'file_name', 'file_url', 'status', 'phone', 'date',
             'temperature', 'humidity', 'check_type', 'points_data',
             'raw_response', 'confidence_score', 'ocr_attempts',
             'has_conflicts', 'conflict_details', 'processing_duration',
@@ -51,12 +52,30 @@ class OCRResultSerializer(serializers.ModelSerializer):
             'error_message', 'contact_info', 'created_at', 'updated_at'
         ]
         read_only_fields = [
-            'id', 'file_name', 'status', 'raw_response', 'confidence_score',
+            'id', 'file_name', 'file_url', 'status', 'raw_response', 'confidence_score',
             'ocr_attempts', 'has_conflicts', 'conflict_details',
-            'processing_duration', 'processing_started_at', 
+            'processing_duration', 'processing_started_at',
             'processing_completed_at', 'error_message', 'contact_info',
             'created_at', 'updated_at'
         ]
+
+    def get_file_url(self, obj):
+        """获取文件URL路径"""
+        if obj.file and obj.file.file:
+            file_url = obj.file.file.url
+
+            request = self.context.get('request')
+            if request and hasattr(request, 'build_absolute_uri'):
+                # 检查是否为开发环境（localhost）
+                host = request.get_host()
+                if 'localhost' in host or '127.0.0.1' in host:
+                    # 开发环境：返回相对路径，让前端代理处理
+                    return file_url
+                else:
+                    # 生产环境：返回完整URL
+                    return request.build_absolute_uri(file_url)
+            return file_url
+        return None
 
 
 class OCRProcessSerializer(serializers.Serializer):
