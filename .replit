@@ -29,11 +29,13 @@ start = "pylsp"
 [nix]
 channel = "stable-23_11"
 
-# 部署配置
+# 部署配置 - 分离构建和运行
 [deployment]
+build = """
+chmod +x scripts/build_replit.sh && ./scripts/build_replit.sh
+"""
 run = """
-chmod +x scripts/setup_replit.sh && ./scripts/setup_replit.sh && \
-chmod +x scripts/start_deployment.sh && ./scripts/start_deployment.sh
+chmod +x scripts/run_replit.sh && ./scripts/run_replit.sh
 """
 ignorePorts = false
 
