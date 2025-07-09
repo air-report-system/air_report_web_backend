@@ -57,8 +57,9 @@ urlpatterns = [
     path('api/v1/orders', include('apps.orders.urls')),  # 不带斜杠的版本
 ]
 
-# 开发环境静态文件服务
+# 静态文件和媒体文件服务
 if settings.DEBUG:
+    # 开发环境：Django自动提供静态文件和媒体文件服务
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
 
@@ -70,3 +71,14 @@ if settings.DEBUG:
         ] + urlpatterns
     except ImportError:
         pass
+else:
+    # 生产环境：手动添加媒体文件服务（适用于Replit等小型部署）
+    # 注意：大型生产环境应使用Nginx等Web服务器来提供媒体文件
+    from django.views.static import serve
+    from django.urls import re_path
+
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', serve, {
+            'document_root': settings.MEDIA_ROOT,
+        }),
+    ]

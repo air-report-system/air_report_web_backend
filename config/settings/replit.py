@@ -16,10 +16,9 @@ from .base import *
 # 默认启用DEBUG模式以便调试，生产环境通过环境变量关闭
 DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
-# 强制启用DEBUG模式以确保媒体文件服务正常工作
-if not DEBUG:
-    print("⚠️  强制启用DEBUG模式以确保媒体文件服务正常工作")
-    DEBUG = True
+# 生产环境媒体文件服务说明
+# 注意：在生产环境中(DEBUG=False)，媒体文件通过urls.py中的自定义路由提供服务
+# 这适用于Replit等小型部署，大型生产环境应使用Nginx等Web服务器
 
 # Replit主机配置 - 允许Replit域名
 ALLOWED_HOSTS = [
@@ -150,9 +149,14 @@ TIME_ZONE = 'Asia/Shanghai'
 
 # 静态文件和媒体文件配置（生产环境）
 if not DEBUG:
-    # 使用WhiteNoise处理静态文件
-    MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
-    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+    # 尝试使用WhiteNoise处理静态文件（如果可用）
+    try:
+        import whitenoise
+        MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+        STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+    except ImportError:
+        # WhiteNoise不可用时的回退方案
+        pass
 
 # 创建必要的目录
 os.makedirs(BASE_DIR / 'staticfiles', exist_ok=True)
