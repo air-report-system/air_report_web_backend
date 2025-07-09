@@ -4,6 +4,7 @@ OCR处理视图
 import logging
 import os
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -289,22 +290,82 @@ class UploadAndProcessView(APIView):
 
                         logger.info(f"创建新文件: {uploaded_file.id}")
 
-                    # 检查是否已有处理中的OCR任务
+                    # 检查是否已有OCR结果（包括处理中和已完成的）
                     existing_ocr = OCRResult.objects.filter(
                         file=uploaded_file,
-                        status__in=['pending', 'processing']
+                        status__in=['pending', 'processing', 'completed']
                     ).first()
 
                     if existing_ocr:
-                        logger.info(f"文件已有处理中的OCR任务: {existing_ocr.id}")
-                        return Response({
-                            'message': '该文件已有处理中的OCR任务',
-                            'file_id': uploaded_file.id,
-                            'ocr_result_id': existing_ocr.id,
-                            'status': existing_ocr.status
-                        }, status=status.HTTP_200_OK)
+                        if existing_ocr.status == 'completed':
+                            logger.info(f"文件已有完成的OCR结果: {existing_ocr.id}")
+                            return Response({
+                                'message': '该文件已有完成的OCR结果',
+                                'file_id': uploaded_file.id,
+                                'ocr_result_id': existing_ocr.id,
+                                'status': existing_ocr.status,
+                                'phone': existing_ocr.phone,
+                                'date': existing_ocr.date.isoformat() if existing_ocr.date else None,
+                                'temperature': existing_ocr.temperature,
+                                'humidity': existing_ocr.humidity,
+                                'check_type': existing_ocr.check_type
+                            }, status=status.HTTP_200_OK)
+                        else:
+                            logger.info(f"文件已有处理中的OCR任务: {existing_ocr.id}")
+                            return Response({
+                                'message': '该文件已有处理中的OCR任务',
+                                'file_id': uploaded_file.id,
+                                'ocr_result_id': existing_ocr.id,
+                                'status': existing_ocr.status
+                            }, status=status.HTTP_200_OK)
 
-                    # 创建OCR结果记录
+                    # 检查是否可以复用相同哈希值文件的OCR结果
+                    same_hash_files = UploadedFile.objects.filter(
+                        hash_md5=uploaded_file.hash_md5
+                    ).exclude(id=uploaded_file.id)
+
+                    if same_hash_files.exists():
+                        reusable_ocr = OCRResult.objects.filter(
+                            file__in=same_hash_files,
+                            status='completed'
+                        ).order_by('-created_at').first()
+
+                        if reusable_ocr:
+                            # 复制OCR结果到当前文件
+                            ocr_result = OCRResult.objects.create(
+                                file=uploaded_file,
+                                status='completed',
+                                phone=reusable_ocr.phone,
+                                date=reusable_ocr.date,
+                                temperature=reusable_ocr.temperature,
+                                humidity=reusable_ocr.humidity,
+                                check_type=reusable_ocr.check_type,
+                                points_data=reusable_ocr.points_data,
+                                raw_response=reusable_ocr.raw_response,
+                                confidence_score=reusable_ocr.confidence_score,
+                                ocr_attempts=reusable_ocr.ocr_attempts,
+                                has_conflicts=reusable_ocr.has_conflicts,
+                                conflict_details=reusable_ocr.conflict_details,
+                                processing_started_at=timezone.now(),
+                                processing_completed_at=timezone.now(),
+                                created_by=request.user
+                            )
+                            logger.info(f"复用相同文件OCR结果: {ocr_result.id} (来源文件ID: {reusable_ocr.file.id})")
+
+                            return Response({
+                                'message': '文件上传成功，复用已有OCR结果',
+                                'file_id': uploaded_file.id,
+                                'ocr_result_id': ocr_result.id,
+                                'status': ocr_result.status,
+                                'phone': ocr_result.phone,
+                                'date': ocr_result.date.isoformat() if ocr_result.date else None,
+                                'temperature': ocr_result.temperature,
+                                'humidity': ocr_result.humidity,
+                                'check_type': ocr_result.check_type,
+                                'reused_from_file_id': reusable_ocr.file.id
+                            }, status=status.HTTP_200_OK)
+
+                    # 创建新的OCR结果记录
                     ocr_result = OCRResult.objects.create(
                         file=uploaded_file,
                         status='pending',
