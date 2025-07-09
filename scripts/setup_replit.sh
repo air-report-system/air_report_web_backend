@@ -273,6 +273,42 @@ install_fonts() {
     fi
 }
 
+# 启动Redis服务
+start_redis_service() {
+    log_info "启动Redis服务..."
+    
+    # 检查Redis是否已安装
+    if ! command -v redis-server &> /dev/null; then
+        log_error "Redis服务未安装，请检查replit.nix配置"
+        return 1
+    fi
+    
+    # 运行Redis启动脚本
+    local redis_script="$SCRIPT_DIR/start_redis.sh"
+    if [[ -f "$redis_script" ]]; then
+        log_info "使用Redis启动脚本..."
+        chmod +x "$redis_script" 2>/dev/null || true
+        
+        if bash "$redis_script" start; then
+            log_success "Redis服务启动成功"
+            
+            # 验证Redis连接
+            sleep 2
+            if redis-cli ping >/dev/null 2>&1; then
+                log_success "Redis连接验证通过"
+            else
+                log_warning "Redis连接验证失败，但继续部署"
+            fi
+        else
+            log_warning "Redis启动失败，WebSocket功能可能受影响"
+            return 0  # 不阻止整个部署流程
+        fi
+    else
+        log_warning "Redis启动脚本不存在: $redis_script"
+        return 0
+    fi
+}
+
 # 设置环境变量
 setup_environment_variables() {
     log_info "设置环境变量..."
@@ -294,6 +330,11 @@ setup_environment_variables() {
     export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
     export PYTHONUNBUFFERED=1
     export PYTHONDONTWRITEBYTECODE=1
+    
+    # 设置Redis环境变量
+    export REDIS_HOST="127.0.0.1"
+    export REDIS_PORT="6379"
+    export REDIS_URL="redis://127.0.0.1:6379"
     
     log_success "环境变量设置完成"
 }
@@ -508,6 +549,8 @@ show_startup_info() {
         log_info "  • 管理后台: /admin/"
         log_info "  • API文档: /api/docs/"
         log_info "  • 字体支持: 中文/英文字体已安装"
+        log_info "  • Redis服务: 127.0.0.1:6379 (WebSocket支持)"
+        log_info "  • LibreOffice: headless模式 (文档处理)"
         echo ""
         log_info "✅ 构建脚本执行完成"
         log_info "🚀 准备进入运行阶段..."
@@ -520,6 +563,8 @@ show_startup_info() {
         log_info "  • 管理后台: /admin/"
         log_info "  • API文档: /api/docs/"
         log_info "  • 字体支持: 中文/英文字体已安装"
+        log_info "  • Redis服务: 127.0.0.1:6379 (WebSocket支持)"
+        log_info "  • LibreOffice: headless模式 (文档处理)"
         echo ""
         log_info "✅ 环境配置脚本执行完成"
         log_info "🚀 Django服务器将由.replit配置启动..."
@@ -545,6 +590,9 @@ main() {
 
     # 安装字体
     install_fonts
+
+    # 启动Redis服务（WebSocket支持）
+    start_redis_service
 
     # 启动LibreOffice服务
     start_libreoffice_service

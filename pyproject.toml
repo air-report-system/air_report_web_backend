@@ -65,6 +65,8 @@ dependencies = [
     "openai>=1.90.0",
     "pygithub>=2.6.1",
     "docx2pdf>=0.1.8",
+    "channels>=4.2.2",
+    "channels-redis>=4.2.1",
 ]
 
 [project.optional-dependencies]

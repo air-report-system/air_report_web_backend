@@ -329,8 +329,9 @@ class BatchJobViewSet(viewsets.ModelViewSet):
             file_item.ocr_result = None
         file_item.save()
 
-        # 启动单个文件的重新处理
+        # 启动单个文件的重新处理（异步模式，避免阻塞）
         try:
+            import threading
             from apps.batch.tasks import process_batch_item
             import os
 
@@ -345,90 +346,87 @@ class BatchJobViewSet(viewsets.ModelViewSet):
             except Exception:
                 file_name = 'Unknown'
 
-            # 统一使用同步处理，避免Celery嵌套调用问题
-            print(f"同步处理单个文件重新识别: {file_name}")
-            
             # 更新文件项状态为处理中
             file_item.status = 'processing'
             file_item.save()
             
-            # 使用同步处理
-            try:
-                from apps.ocr.tasks import process_image_ocr_sync
-                
-                # 获取用户ID（更安全的方式）
-                user_id = None
-                if hasattr(file_item, 'created_by_id') and file_item.created_by_id:
-                    user_id = file_item.created_by_id
-                elif hasattr(batch_job, 'created_by_id') and batch_job.created_by_id:
-                    user_id = batch_job.created_by_id
-                else:
-                    user_id = 1  # 默认用户ID
-                
-                print(f"开始同步OCR处理: file_id={file_item.file.id}, user_id={user_id}")
-                
-                # 同步处理OCR
-                result = process_image_ocr_sync(
-                    file_item.file.id,
-                    user_id,
-                    use_multi_ocr,
-                    ocr_count
-                )
-                
-                print(f"OCR处理结果: {result}")
-                
-                # 更新文件项状态
-                if result and result.get('status') == 'success':
-                    file_item.status = 'completed'
-                    # 关联OCR结果
-                    if 'ocr_result_id' in result and result['ocr_result_id']:
-                        from apps.ocr.models import OCRResult
-                        try:
-                            ocr_result_obj = OCRResult.objects.get(id=result['ocr_result_id'])
-                            file_item.ocr_result = ocr_result_obj
-                            print(f"OCR结果关联成功: {ocr_result_obj.id}")
-                        except OCRResult.DoesNotExist:
-                            print(f"OCR结果不存在: {result['ocr_result_id']}")
-                else:
-                    file_item.status = 'failed'
-                    error_msg = result.get('error', '处理失败') if result else '处理失败'
-                    file_item.error_message = error_msg
-                    print(f"OCR处理失败: {error_msg}")
-                
-                # 保存文件项状态
-                file_item.save()
-                print(f"文件项状态已更新: {file_item.status}")
-                
-                # 构建返回结果（确保所有字段都存在）
-                response_data = {
-                    'message': f'重新识别完成: {file_name}',
-                    'file_item_id': file_item.id,
-                    'status': file_item.status,
-                    'result': result or {'status': 'error', 'error': '处理失败'}
-                }
-                
-                print(f"返回响应: {response_data}")
-                
-                return Response(response_data, status=status.HTTP_200_OK)
-                
-            except Exception as sync_error:
-                print(f"同步处理异常: {str(sync_error)}")
-                import traceback
-                traceback.print_exc()
-                
+            print(f"异步处理单个文件重新识别: {file_name}")
+
+            def async_reprocess():
+                """异步重新处理函数"""
                 try:
-                    file_item.status = 'failed'
-                    file_item.error_message = str(sync_error)
+                    from apps.ocr.tasks import process_image_ocr_sync
+                    
+                    # 获取用户ID（更安全的方式）
+                    user_id = None
+                    if hasattr(file_item, 'created_by_id') and file_item.created_by_id:
+                        user_id = file_item.created_by_id
+                    elif hasattr(batch_job, 'created_by_id') and batch_job.created_by_id:
+                        user_id = batch_job.created_by_id
+                    else:
+                        user_id = 1  # 默认用户ID
+                    
+                    print(f"开始异步OCR处理: file_id={file_item.file.id}, user_id={user_id}")
+                    
+                    # 同步处理OCR
+                    result = process_image_ocr_sync(
+                        file_item.file.id,
+                        user_id,
+                        use_multi_ocr,
+                        ocr_count
+                    )
+                    
+                    print(f"OCR处理结果: {result}")
+                    
+                    # 更新文件项状态
+                    file_item.refresh_from_db()
+                    if result and result.get('status') == 'success':
+                        file_item.status = 'completed'
+                        # 关联OCR结果
+                        if 'ocr_result_id' in result and result['ocr_result_id']:
+                            from apps.ocr.models import OCRResult
+                            try:
+                                ocr_result_obj = OCRResult.objects.get(id=result['ocr_result_id'])
+                                file_item.ocr_result = ocr_result_obj
+                                print(f"OCR结果关联成功: {ocr_result_obj.id}")
+                            except OCRResult.DoesNotExist:
+                                print(f"OCR结果不存在: {result['ocr_result_id']}")
+                    else:
+                        file_item.status = 'failed'
+                        error_msg = result.get('error', '处理失败') if result else '处理失败'
+                        file_item.error_message = error_msg
+                        print(f"OCR处理失败: {error_msg}")
+                    
+                    # 保存文件项状态
                     file_item.save()
-                    print(f"文件项错误状态已保存: {file_item.status}")
-                except Exception as save_error:
-                    print(f"保存文件项错误状态失败: {str(save_error)}")
-                
-                return Response({
-                    'error': f'同步处理失败: {str(sync_error)}',
-                    'file_item_id': file_item.id,
-                    'status': 'failed'
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    print(f"文件项状态已更新: {file_item.status}")
+                    
+                except Exception as async_error:
+                    print(f"异步处理异常: {str(async_error)}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    try:
+                        file_item.refresh_from_db()
+                        file_item.status = 'failed'
+                        file_item.error_message = str(async_error)
+                        file_item.save()
+                        print(f"文件项错误状态已保存: {file_item.status}")
+                    except Exception as save_error:
+                        print(f"保存文件项错误状态失败: {str(save_error)}")
+
+            # 启动后台线程处理
+            thread = threading.Thread(target=async_reprocess)
+            thread.daemon = True
+            thread.start()
+            
+            # 立即返回202状态码，表示已接受处理
+            return Response({
+                'message': f'重新识别已在后台启动: {file_name}',
+                'file_item_id': file_item.id,
+                'status': 'processing',
+                'note': '处理正在后台进行，请刷新页面查看最新状态'
+            }, status=status.HTTP_202_ACCEPTED)
 
         except Exception as e:
             print(f"重新识别失败: {str(e)}")
@@ -437,6 +435,33 @@ class BatchJobViewSet(viewsets.ModelViewSet):
             
             return Response({
                 'error': f'启动重新识别失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def destroy(self, request, *args, **kwargs):
+        """删除批量任务"""
+        batch_job = self.get_object()
+        
+        # 只允许删除非运行中的任务
+        if batch_job.status == 'running':
+            return Response({
+                'error': '无法删除正在运行的任务，请先取消任务'
+            }, status=status.HTTP_409_CONFLICT)
+        
+        try:
+            with transaction.atomic():
+                # 删除关联的文件项（会自动删除关联的OCR结果）
+                batch_job.batchfileitem_set.all().delete()
+                
+                # 删除批量任务
+                batch_job.delete()
+                
+                return Response({
+                    'message': '批量任务已成功删除'
+                }, status=status.HTTP_204_NO_CONTENT)
+                
+        except Exception as e:
+            return Response({
+                'error': f'删除任务失败: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -558,83 +583,18 @@ class BulkFileUploadAndBatchView(APIView):
                 for file in files:
                     print(f"处理文件: {file.name}, 大小: {file.size}")
 
-                    # 计算文件哈希值
-                    import hashlib
-                    import time
-                    file.seek(0)
-                    hash_md5 = hashlib.md5()
-                    for chunk in file.chunks():
-                        hash_md5.update(chunk)
-                    file_hash = hash_md5.hexdigest()
-                    file.seek(0)
-
-                    print(f"文件哈希值: {file_hash}")
-
-                    # 查找当前用户的现有文件
-                    existing_file = UploadedFile.objects.filter(
-                        hash_md5=file_hash,
-                        created_by=request.user
-                    ).first()
-
-                    # 检查文件是否有效
-                    if (existing_file and existing_file.file and
-                        default_storage.exists(existing_file.file.name)):
-                        # 如果找到当前用户的有效文件，直接复用
-                        print(f"复用现有文件: {existing_file.id}")
-                        uploaded_files.append(existing_file)
-                    else:
-                        # 如果当前用户存在记录但物理文件不存在，删除旧记录
-                        if existing_file:
-                            print(f"现有文件 {existing_file.id} 的物理文件不存在，删除旧记录")
-                            try:
-                                existing_file.delete()
-                            except Exception as delete_error:
-                                print(f"删除无效记录失败: {delete_error}")
-
-                        # 检查是否有其他用户的相同哈希文件存在
-                        other_existing_file = UploadedFile.objects.filter(
-                            hash_md5=file_hash
-                        ).exclude(created_by=request.user).first()
-
-                        if other_existing_file:
-                            # 如果其他用户有相同文件，为避免哈希冲突，我们重新计算哈希（加上用户ID和时间戳）
-                            unique_hash = hashlib.md5(
-                                f"{file_hash}_{request.user.id}_{int(time.time())}".encode()
-                            ).hexdigest()
-                            print(f"检测到哈希冲突，使用唯一哈希: {unique_hash}")
-
-                            # 手动创建文件记录，避免自动哈希计算
-                            try:
-                                uploaded_file = UploadedFile(
-                                    file=file,
-                                    original_name=file.name,
-                                    created_by=request.user,
-                                    hash_md5=unique_hash,
-                                    file_size=file.size,
-                                    file_type=(file.content_type.split('/')[0]
-                                              if file.content_type else 'unknown'),
-                                    mime_type=file.content_type or 'application/octet-stream'
-                                )
-                                uploaded_file.save()
-                                print(f"创建新文件(唯一哈希): {uploaded_file.id}")
-                                uploaded_files.append(uploaded_file)
-                            except Exception as e:
-                                print(f"创建文件记录失败 {file.name}: {e}")
-                                continue
-                        else:
-                            # 创建新文件记录
-                            try:
-                                uploaded_file = UploadedFile.objects.create(
-                                    file=file,
-                                    original_name=file.name,
-                                    created_by=request.user
-                                )
-                                print(f"创建新文件: {uploaded_file.id}")
-                                uploaded_files.append(uploaded_file)
-                            except Exception as e:
-                                # 如果仍然创建失败，记录错误并跳过该文件
-                                print(f"创建文件记录失败 {file.name}: {e}")
-                                continue
+                    # 直接创建新文件记录，不再进行复用检查
+                    try:
+                        uploaded_file = UploadedFile.objects.create(
+                            file=file,
+                            original_name=file.name,
+                            created_by=request.user
+                        )
+                        print(f"创建新文件: {uploaded_file.id}")
+                        uploaded_files.append(uploaded_file)
+                    except Exception as e:
+                        print(f"创建文件记录失败 {file.name}: {e}")
+                        continue
 
                 print(f"成功处理 {len(uploaded_files)} 个文件")
 

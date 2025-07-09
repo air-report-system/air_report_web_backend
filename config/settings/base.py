@@ -34,6 +34,7 @@ THIRD_PARTY_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
     'drf_spectacular',
+    'channels',
 ]
 
 LOCAL_APPS = [
@@ -79,6 +80,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
 
 # Database
 DATABASES = {
@@ -191,6 +193,16 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+
+# Channels配置
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [os.getenv('REDIS_URL', 'redis://localhost:6379/2')],
+        },
+    },
+}
 
 # API配置
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')

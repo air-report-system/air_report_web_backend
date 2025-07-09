@@ -40,6 +40,27 @@ if [ ! -f ".replit_setup_complete" ]; then
     log_warning "构建标记文件不存在，可能构建未完成"
 fi
 
+# 启动Redis服务
+log_info "确保Redis服务运行..."
+if command -v redis-server >/dev/null 2>&1; then
+    # 检查Redis是否已运行
+    if ! redis-cli ping >/dev/null 2>&1; then
+        log_info "启动Redis服务..."
+        if [ -f "scripts/start_redis.sh" ]; then
+            chmod +x scripts/start_redis.sh
+            ./scripts/start_redis.sh start
+        else
+            log_warning "Redis启动脚本不存在，尝试直接启动..."
+            redis-server --daemonize yes --port 6379 --bind 127.0.0.1
+            sleep 2
+        fi
+    else
+        log_info "Redis服务已在运行"
+    fi
+else
+    log_warning "Redis服务未安装，WebSocket功能可能受影响"
+fi
+
 # 加载环境变量（从原始脚本的逻辑）
 log_info "加载环境变量..."
 if [ -f ".env.fonts" ]; then
@@ -51,6 +72,11 @@ if [ -f ".env.libreoffice" ]; then
     source .env.libreoffice
     log_info "已加载LibreOffice环境变量"
 fi
+
+# 设置Redis环境变量
+export REDIS_HOST="127.0.0.1"
+export REDIS_PORT="6379"
+export REDIS_URL="redis://127.0.0.1:6379"
 
 # 清理可能占用的端口
 if command -v lsof >/dev/null 2>&1 && lsof -i :8000 >/dev/null 2>&1; then

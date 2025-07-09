@@ -6,6 +6,9 @@
     pkgs.wget
     pkgs.git
 
+    # Redis - WebSocket 和 Celery 支持
+    pkgs.redis
+
     # LibreOffice - 已验证可用
     pkgs.libreoffice
 

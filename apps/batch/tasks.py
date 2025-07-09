@@ -13,6 +13,39 @@ from .models import BatchJob, BatchFileItem
 logger = logging.getLogger(__name__)
 
 
+# WebSocket通信函数
+def send_batch_progress_update(batch_job_id: int, progress_data: dict):
+    """发送批量任务进度更新"""
+    try:
+        from .consumers import send_batch_progress_update as ws_send_progress
+        ws_send_progress(batch_job_id, progress_data)
+    except ImportError:
+        # 如果WebSocket依赖不可用，记录警告但不影响功能
+        logger.warning("WebSocket依赖不可用，跳过实时进度更新")
+    except Exception as e:
+        logger.error(f"发送WebSocket进度更新失败: {e}")
+
+def send_file_processing_update(batch_job_id: int, file_data: dict):
+    """发送文件处理状态更新"""
+    try:
+        from .consumers import send_file_processing_update as ws_send_file
+        ws_send_file(batch_job_id, file_data)
+    except ImportError:
+        logger.warning("WebSocket依赖不可用，跳过文件状态更新")
+    except Exception as e:
+        logger.error(f"发送WebSocket文件更新失败: {e}")
+
+def send_batch_job_completed(batch_job_id: int, completion_data: dict):
+    """发送批量任务完成消息"""
+    try:
+        from .consumers import send_batch_job_completed as ws_send_completed
+        ws_send_completed(batch_job_id, completion_data)
+    except ImportError:
+        logger.warning("WebSocket依赖不可用，跳过任务完成通知")
+    except Exception as e:
+        logger.error(f"发送WebSocket任务完成通知失败: {e}")
+
+
 def start_batch_ocr_processing(batch_job_id, force_reprocess=False):
     """
     启动批量OCR处理（非异步版本，用于立即启动）
@@ -67,166 +100,132 @@ def start_batch_ocr_processing(batch_job_id, force_reprocess=False):
                 # 更新文件项状态
                 file_item.status = 'processing'
                 file_item.save()
+                
+                # 发送WebSocket文件状态更新
+                send_file_processing_update(batch_job.id, {
+                    'file_id': file_item.id,
+                    'batch_job_id': batch_job.id,
+                    'status': 'processing',
+                    'filename': file_item.file.original_name
+                })
 
-                # 检查是否已有OCR结果（包括相同哈希值文件的OCR结果）
-                # 只有在非强制重新处理模式下才进行复用检查
+                # 直接进行OCR处理，不再进行复用检查
                 from apps.ocr.models import OCRResult
-                from apps.files.models import UploadedFile
 
-                should_reuse = not force_reprocess
-                existing_ocr = None
-
-                if should_reuse:
-                    # 首先检查当前文件的OCR结果
-                    existing_ocr = OCRResult.objects.filter(
-                        file=file_item.file,
-                        status__in=['pending', 'processing', 'completed']
-                    ).first()
-
-                    # 如果当前文件没有完成的OCR结果，查找相同哈希值文件的OCR结果
-                    if not (existing_ocr and existing_ocr.status == 'completed'):
-                        # 查找相同哈希值的文件
-                        same_hash_files = UploadedFile.objects.filter(
-                            hash_md5=file_item.file.hash_md5
-                        ).exclude(id=file_item.file.id)
-
-                        if same_hash_files.exists():
-                            # 查找这些文件中已完成的OCR结果
-                            reusable_ocr = OCRResult.objects.filter(
-                                file__in=same_hash_files,
-                                status='completed'
-                            ).order_by('-created_at').first()
-
-                            if reusable_ocr:
-                                # 复制OCR结果到当前文件
-                                new_ocr = OCRResult.objects.create(
-                                    file=file_item.file,
-                                    status='completed',
-                                    phone=reusable_ocr.phone,
-                                    date=reusable_ocr.date,
-                                    temperature=reusable_ocr.temperature,
-                                    humidity=reusable_ocr.humidity,
-                                    check_type=reusable_ocr.check_type,
-                                    points_data=reusable_ocr.points_data,
-                                    raw_response=reusable_ocr.raw_response,
-                                    confidence_score=reusable_ocr.confidence_score,
-                                    ocr_attempts=reusable_ocr.ocr_attempts,
-                                    has_conflicts=reusable_ocr.has_conflicts,
-                                    conflict_details=reusable_ocr.conflict_details,
-                                    processing_started_at=timezone.now(),
-                                    processing_completed_at=timezone.now(),
-                                    created_by=batch_job.created_by
-                                )
-                                file_item.ocr_result = new_ocr
-                                file_item.status = 'completed'
-                                file_item.save()
-                                print(f"复用相同文件OCR结果: {file_item.file.original_name} (来源文件ID: {reusable_ocr.file.id})")
-                                continue
-
-                    if existing_ocr and existing_ocr.status == 'completed':
-                        # 如果已有完成的OCR结果，直接使用
-                        file_item.ocr_result = existing_ocr
-                        file_item.status = 'completed'
-                        file_item.save()
-                        print(f"复用现有OCR结果: {file_item.file.original_name}")
-                        continue
-
-                # 强制重新处理或没有可复用的结果，进行新的OCR处理
+                # 如果强制重新处理，删除现有的OCR结果
                 if force_reprocess:
                     print(f"强制重新识别: {file_item.file.original_name}")
-                    # 如果存在旧的OCR结果，删除它们以确保重新处理
+                    existing_ocr = OCRResult.objects.filter(
+                        file=file_item.file
+                    ).first()
                     if existing_ocr:
                         existing_ocr.delete()
-                        existing_ocr = None
 
                 # 创建新的OCR结果记录
-                if not existing_ocr:
-                    ocr_result = OCRResult.objects.create(
-                        file=file_item.file,
-                        status='pending',
-                        ocr_attempts=ocr_count if use_multi_ocr else 1,
-                        created_by=batch_job.created_by
-                    )
-                    file_item.ocr_result = ocr_result
-                    file_item.save()
+                ocr_result = OCRResult.objects.create(
+                    file=file_item.file,
+                    status='pending',
+                    ocr_attempts=ocr_count if use_multi_ocr else 1,
+                    created_by=batch_job.created_by
+                )
+                file_item.ocr_result = ocr_result
+                file_item.save()
 
-                    # 调用现有的OCR处理任务 - 增强错误处理
-                    from apps.ocr.tasks import process_image_ocr
+                # 调用现有的OCR处理任务 - 增强错误处理
+                from apps.ocr.tasks import process_image_ocr
 
-                    try:
-                        if is_deployment:
-                            # 部署环境：同步处理以避免超时问题
-                            print(f"部署环境：同步处理 {file_item.file.original_name}")
+                try:
+                    if is_deployment:
+                        # 部署环境：同步处理以避免超时问题
+                        print(f"部署环境：同步处理 {file_item.file.original_name}")
 
-                            # 直接调用OCR处理函数
-                            if use_multi_ocr:
-                                from apps.ocr.tasks import enhanced_multi_ocr_process
-                                result = enhanced_multi_ocr_process(
-                                    file_item.file.file.path,
-                                    ocr_count
-                                )
-                            else:
-                                from apps.ocr.tasks import single_ocr_process
-                                result = single_ocr_process(file_item.file.file.path)
-
-                            # 创建OCR结果记录
-                            from apps.ocr.models import OCRResult
-                            ocr_result = OCRResult.objects.create(
-                                file=file_item.file,
-                                phone=result.get('phone', ''),
-                                date=result.get('date', ''),
-                                temperature=result.get('temperature', ''),
-                                humidity=result.get('humidity', ''),
-                                check_type=result.get('check_type', 'initial'),
-                                points_data=result.get('points_data', {}),
-                                raw_response=result.get('raw_response', ''),
-                                confidence_score=result.get('confidence_score', 0.0),
-                                ocr_attempts=result.get('ocr_attempts', 1),
-                                has_conflicts=result.get('has_conflicts', False),
-                                conflict_details=result.get('conflict_details', {}),
-                                status='completed',
-                                created_by=batch_job.created_by
+                        # 直接调用OCR处理函数
+                        if use_multi_ocr:
+                            from apps.ocr.tasks import enhanced_multi_ocr_process
+                            result = enhanced_multi_ocr_process(
+                                file_item.file.file.path,
+                                ocr_count
                             )
-
-                            # 包装结果
-                            result = {
-                                'status': 'success',
-                                'ocr_result_id': ocr_result.id
-                            }
-
-                            # 更新文件项状态
-                            if result.get('status') == 'success':
-                                file_item.status = 'completed'
-                                # 关联OCR结果
-                                if 'ocr_result_id' in result:
-                                    from apps.ocr.models import OCRResult
-                                    try:
-                                        ocr_result_obj = OCRResult.objects.get(id=result['ocr_result_id'])
-                                        file_item.ocr_result = ocr_result_obj
-                                    except OCRResult.DoesNotExist:
-                                        logger.warning(f"OCR结果 {result['ocr_result_id']} 不存在")
-                            else:
-                                file_item.status = 'failed'
-                                file_item.error_message = result.get('error', '处理失败')
-
-                            file_item.save()
-
                         else:
-                            # 开发环境：异步处理
-                            task = process_image_ocr.delay(
-                                file_item.file.id,
-                                batch_job.created_by.id,
-                                use_multi_ocr,
-                                ocr_count,
-                                force_reprocess
-                            )
-                            print(f"启动OCR任务: {task.id} for {file_item.file.original_name}")
+                            from apps.ocr.tasks import single_ocr_process
+                            result = single_ocr_process(file_item.file.file.path)
 
-                    except Exception as ocr_error:
-                        print(f"OCR处理失败: {ocr_error}")
-                        file_item.status = 'failed'
-                        file_item.error_message = str(ocr_error)
+                        # 创建OCR结果记录
+                        from apps.ocr.models import OCRResult
+                        ocr_result = OCRResult.objects.create(
+                            file=file_item.file,
+                            phone=result.get('phone', ''),
+                            date=result.get('date', ''),
+                            temperature=result.get('temperature', ''),
+                            humidity=result.get('humidity', ''),
+                            check_type=result.get('check_type', 'initial'),
+                            points_data=result.get('points_data', {}),
+                            raw_response=result.get('raw_response', ''),
+                            confidence_score=result.get('confidence_score', 0.0),
+                            ocr_attempts=result.get('ocr_attempts', 1),
+                            has_conflicts=result.get('has_conflicts', False),
+                            conflict_details=result.get('conflict_details', {}),
+                            status='completed',
+                            created_by=batch_job.created_by
+                        )
+
+                        # 包装结果
+                        result = {
+                            'status': 'success',
+                            'ocr_result_id': ocr_result.id
+                        }
+
+                        # 更新文件项状态
+                        if result.get('status') == 'success':
+                            file_item.status = 'completed'
+                            # 关联OCR结果
+                            if 'ocr_result_id' in result:
+                                from apps.ocr.models import OCRResult
+                                try:
+                                    ocr_result_obj = OCRResult.objects.get(id=result['ocr_result_id'])
+                                    file_item.ocr_result = ocr_result_obj
+                                except OCRResult.DoesNotExist:
+                                    logger.warning(f"OCR结果 {result['ocr_result_id']} 不存在")
+                            
+                            # 发送WebSocket文件完成更新
+                            send_file_processing_update(batch_job.id, {
+                                'file_id': file_item.id,
+                                'batch_job_id': batch_job.id,
+                                'status': 'completed',
+                                'filename': file_item.file.original_name,
+                                'ocr_result_id': result.get('ocr_result_id')
+                            })
+                        else:
+                            file_item.status = 'failed'
+                            file_item.error_message = result.get('error', '处理失败')
+                            
+                            # 发送WebSocket文件失败更新
+                            send_file_processing_update(batch_job.id, {
+                                'file_id': file_item.id,
+                                'batch_job_id': batch_job.id,
+                                'status': 'failed',
+                                'filename': file_item.file.original_name,
+                                'error_message': result.get('error', '处理失败')
+                            })
+
                         file_item.save()
+
+                    else:
+                        # 开发环境：异步处理
+                        task = process_image_ocr.delay(
+                            file_item.file.id,
+                            batch_job.created_by.id,
+                            use_multi_ocr,
+                            ocr_count,
+                            force_reprocess
+                        )
+                        print(f"启动OCR任务: {task.id} for {file_item.file.original_name}")
+
+                except Exception as ocr_error:
+                    print(f"OCR处理失败: {ocr_error}")
+                    file_item.status = 'failed'
+                    file_item.error_message = str(ocr_error)
+                    file_item.save()
 
                 # 更新批量任务进度
                 update_batch_job_progress(batch_job)
@@ -260,29 +259,65 @@ def start_batch_ocr_processing(batch_job_id, force_reprocess=False):
 
 def update_batch_job_progress(batch_job):
     """更新批量任务进度"""
-    file_items = batch_job.batchfileitem_set.all()
-    total_files = file_items.count()
+    from django.db import transaction
+    
+    with transaction.atomic():
+        # 刷新批量任务以获取最新状态
+        batch_job.refresh_from_db()
+        
+        # 重新计算所有文件项的状态
+        file_items = batch_job.batchfileitem_set.all()
+        total_files = file_items.count()
 
-    if total_files == 0:
-        return
+        if total_files == 0:
+            return
 
-    processed_files = file_items.filter(
-        status__in=['completed', 'failed', 'skipped']
-    ).count()
+        # 统计各种状态的文件数量
+        completed_files = file_items.filter(status='completed').count()
+        failed_files = file_items.filter(status='failed').count()
+        skipped_files = file_items.filter(status='skipped').count()
+        processing_files = file_items.filter(status='processing').count()
+        
+        # 已处理的文件数量（包括完成、失败、跳过）
+        processed_files = completed_files + failed_files + skipped_files
+        
+        # 更新批量任务的统计信息
+        batch_job.total_files = total_files
+        batch_job.processed_files = processed_files
+        batch_job.failed_files = failed_files
 
-    failed_files = file_items.filter(status='failed').count()
-
-    batch_job.processed_files = processed_files
-    batch_job.failed_files = failed_files
-
-    # 如果所有文件都处理完成，更新任务状态
-    if processed_files == total_files:
-        batch_job.status = 'completed'
-        batch_job.completed_at = timezone.now()
-
-    batch_job.save()
-    progress_percentage = batch_job.progress_percentage
-    print(f"任务进度更新: {processed_files}/{total_files} ({progress_percentage:.1f}%)")
+        # 如果所有文件都处理完成（没有pending或processing状态），更新任务状态
+        if processed_files == total_files and processing_files == 0:
+            if batch_job.status == 'running':
+                batch_job.status = 'completed'
+                batch_job.completed_at = timezone.now()
+        
+        batch_job.save()
+        
+        progress_percentage = batch_job.progress_percentage
+        print(f"任务进度更新: {processed_files}/{total_files} ({progress_percentage:.1f}%) - 完成:{completed_files}, 失败:{failed_files}, 跳过:{skipped_files}, 处理中:{processing_files}")
+        
+        # 发送WebSocket进度更新
+        send_batch_progress_update(batch_job.id, {
+            'batch_job_id': batch_job.id,
+            'progress_percentage': progress_percentage,
+            'processed_files': processed_files,
+            'failed_files': failed_files,
+            'status': batch_job.status,
+            'total_files': total_files,
+            'completed_files': completed_files,
+            'processing_files': processing_files
+        })
+        
+        # 如果任务完成，发送完成通知
+        if batch_job.status == 'completed':
+            send_batch_job_completed(batch_job.id, {
+                'batch_job_id': batch_job.id,
+                'total_files': total_files,
+                'completed_files': completed_files,
+                'failed_files': failed_files,
+                'completion_time': batch_job.completed_at.isoformat() if batch_job.completed_at else None
+            })
 
 
 @shared_task(bind=True)

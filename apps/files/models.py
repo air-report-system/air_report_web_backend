@@ -22,7 +22,7 @@ class UploadedFile(BaseModel):
     file_size = models.BigIntegerField(verbose_name='文件大小')
     file_type = models.CharField(max_length=50, verbose_name='文件类型')
     mime_type = models.CharField(max_length=100, verbose_name='MIME类型')
-    hash_md5 = models.CharField(max_length=32, unique=True, verbose_name='MD5哈希')
+    hash_md5 = models.CharField(max_length=32, verbose_name='MD5哈希')
     is_processed = models.BooleanField(default=False, verbose_name='是否已处理')
     
     class Meta:
