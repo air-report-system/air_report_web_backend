@@ -32,10 +32,10 @@ channel = "stable-23_11"
 # 部署配置 - 分离构建和运行
 [deployment]
 build = """
-chmod +x scripts/build_replit.sh && ./scripts/build_replit.sh
+chmod +x scripts/*.sh && ./scripts/build_replit.sh
 """
 run = """
-chmod +x scripts/run_replit.sh && ./scripts/run_replit.sh
+chmod +x scripts/*.sh && ./scripts/run_replit.sh
 """
 ignorePorts = false
 

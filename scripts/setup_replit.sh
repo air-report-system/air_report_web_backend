@@ -499,17 +499,31 @@ prepare_server_startup() {
 
 # 显示启动信息
 show_startup_info() {
-    log_success "🎉 Replit环境配置完成！"
-    echo ""
-    log_info "📋 配置信息:"
-    log_info "  • Django设置: config.settings.replit"
-    log_info "  • 超级用户: admin / admin123"
-    log_info "  • 管理后台: /admin/"
-    log_info "  • API文档: /api/docs/"
-    log_info "  • 字体支持: 中文/英文字体已安装"
-    echo ""
-    log_info "✅ 环境配置脚本执行完成"
-    log_info "🚀 Django服务器将由.replit配置启动..."
+    if [ "$REPLIT_BUILD_PHASE" = "1" ]; then
+        log_success "🎉 Replit构建阶段完成！"
+        echo ""
+        log_info "📋 构建信息:"
+        log_info "  • Django设置: config.settings.replit"
+        log_info "  • 超级用户: admin / admin123"
+        log_info "  • 管理后台: /admin/"
+        log_info "  • API文档: /api/docs/"
+        log_info "  • 字体支持: 中文/英文字体已安装"
+        echo ""
+        log_info "✅ 构建脚本执行完成"
+        log_info "🚀 准备进入运行阶段..."
+    else
+        log_success "🎉 Replit环境配置完成！"
+        echo ""
+        log_info "📋 配置信息:"
+        log_info "  • Django设置: config.settings.replit"
+        log_info "  • 超级用户: admin / admin123"
+        log_info "  • 管理后台: /admin/"
+        log_info "  • API文档: /api/docs/"
+        log_info "  • 字体支持: 中文/英文字体已安装"
+        echo ""
+        log_info "✅ 环境配置脚本执行完成"
+        log_info "🚀 Django服务器将由.replit配置启动..."
+    fi
 }
 
 # 注意：不再需要占位服务，因为使用了 ignorePorts = true

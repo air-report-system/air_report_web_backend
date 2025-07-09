@@ -30,59 +30,26 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 导入原始脚本的所有函数（除了main函数）
-source "$SCRIPT_DIR/setup_replit.sh"
+# 直接调用原始脚本，但修改其行为
+log_info "🔨 开始Replit构建阶段..."
+log_info "调用原始setup_replit.sh脚本进行构建..."
 
-# 重新定义main函数，只包含构建步骤
-main() {
-    log_info "🔨 开始Replit构建阶段..."
+# 确保脚本有执行权限
+chmod +x "$SCRIPT_DIR/setup_replit.sh" 2>/dev/null || true
+chmod +x "$SCRIPT_DIR"/*.sh 2>/dev/null || true
 
-    # 检查环境
-    check_environment
+# 设置环境变量标记这是构建阶段
+export REPLIT_BUILD_PHASE=1
 
-    # 安装Python依赖
-    install_python_dependencies
+# 调用原始脚本
+if [ -f "$SCRIPT_DIR/setup_replit.sh" ]; then
+    "$SCRIPT_DIR/setup_replit.sh"
+else
+    log_error "setup_replit.sh 文件不存在"
+    exit 1
+fi
 
-    # 配置系统依赖（仅首次运行）
-    configure_system_dependencies
+log_success "🎉 构建阶段完成！"
+log_info "✅ 准备启动服务器..."
 
-    # 安装字体
-    install_fonts
-
-    # 跳过LibreOffice服务启动（构建阶段不需要）
-    log_info "跳过LibreOffice服务启动（将在运行阶段按需启动）"
-
-    # 设置环境变量
-    setup_environment_variables
-
-    # 数据库迁移
-    run_database_migrations
-
-    # 创建超级用户
-    create_superuser
-
-    # 收集静态文件
-    collect_static_files
-
-    # 简化验证安装
-    verify_installation_quick
-
-    # 标记安装完成
-    mark_setup_complete
-
-    # 准备启动服务器（但不实际启动）
-    prepare_server_startup
-
-    # 显示构建完成信息
-    log_success "🎉 构建阶段完成！"
-    log_info "📋 构建信息:"
-    log_info "• Django设置: config.settings.replit"
-    log_info "• 超级用户: admin / admin123"
-    log_info "• 管理后台: /admin/"
-    log_info "• API文档: /api/docs/"
-    log_info "• 字体支持: 中文/英文字体已安装"
-    log_info "✅ 准备启动服务器..."
-}
-
-# 执行主函数
-main "$@"
+# 构建脚本执行完成
