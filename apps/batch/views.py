@@ -2,6 +2,8 @@
 批量处理视图
 """
 from django.db import transaction
+from django.utils import timezone
+from django.core.files.storage import default_storage
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -322,37 +324,29 @@ class BulkFileUploadAndBatchView(APIView):
 
                     print(f"文件哈希值: {file_hash}")
 
-                    # 查找现有文件（允许跨用户复用相同文件）
-                    existing_files = UploadedFile.objects.filter(
-                        hash_md5=file_hash
-                    ).order_by('-created_at')  # 按创建时间倒序，优先使用最新的
+                    # 查找当天的现有文件（仅限当天复用，避免跨日期路径问题）
+                    today = timezone.now().date()
+                    print(f"查找当天({today})的相同文件...")
 
-                    # 查找有效的现有文件（物理文件存在的记录）
-                    from django.core.files.storage import default_storage
-                    valid_existing_file = None
-                    invalid_files_to_delete = []
+                    existing_file = UploadedFile.objects.filter(
+                        hash_md5=file_hash,
+                        created_at__date=today  # 仅查找当天创建的文件
+                    ).first()
 
-                    for existing_file in existing_files:
-                        if default_storage.exists(existing_file.file.name):
-                            print(f"找到有效的现有文件: ID={existing_file.id}, 路径={existing_file.file.name}")
-                            valid_existing_file = existing_file
-                            break
-                        else:
-                            print(f"发现无效文件记录: ID={existing_file.id}, 路径={existing_file.file.name}")
-                            invalid_files_to_delete.append(existing_file)
-
-                    # 删除所有无效的文件记录
-                    for invalid_file in invalid_files_to_delete:
+                    # 检查当天的文件是否有效
+                    if existing_file and not default_storage.exists(existing_file.file.name):
+                        print(f"当天文件记录ID={existing_file.id} 的物理文件 {existing_file.file.name} 不存在，删除记录")
                         try:
-                            print(f"删除无效文件记录: ID={invalid_file.id}")
-                            invalid_file.delete()
+                            existing_file.delete()
+                            existing_file = None
                         except Exception as delete_error:
                             print(f"删除无效记录失败: {delete_error}")
+                            existing_file = None
 
-                    if valid_existing_file:
-                        # 如果找到有效的现有文件，直接使用
-                        print(f"复用现有文件: {valid_existing_file.id}")
-                        uploaded_files.append(valid_existing_file)
+                    if existing_file:
+                        # 如果找到当天的有效文件，直接复用
+                        print(f"复用当天文件: {existing_file.id}")
+                        uploaded_files.append(existing_file)
                     else:
                         # 如果文件不存在，创建新文件记录
                         try:
