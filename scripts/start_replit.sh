@@ -26,13 +26,13 @@ if [ "$REPL_DEPLOYMENT" = "1" ]; then
     echo "[INFO] Workers: 1"
     echo "[INFO] 超时: 300秒"
 
-    # 部署模式：单worker，更快启动
+    # 部署模式：单worker，增加超时时间以支持OCR处理
     exec gunicorn config.wsgi:application \
         --bind 0.0.0.0:8000 \
         --workers 1 \
         --worker-class sync \
-        --timeout 300 \
-        --graceful-timeout 30 \
+        --timeout 600 \
+        --graceful-timeout 60 \
         --keep-alive 2 \
         --max-requests 500 \
         --max-requests-jitter 50 \

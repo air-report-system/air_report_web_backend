@@ -1,6 +1,7 @@
 """
 批量处理视图
 """
+import os
 from django.db import transaction
 from django.utils import timezone
 from django.core.files.storage import default_storage
@@ -432,11 +433,37 @@ class BulkFileUploadAndBatchView(APIView):
                         batch_job.status = 'running'
                         batch_job.save()
 
-                        # 异步启动OCR处理
+                        # 异步启动OCR处理 - 增强错误处理
                         try:
                             print(f"调用start_batch_ocr_processing...")
-                            start_batch_ocr_processing(batch_job.id)
-                            print(f"批量OCR处理启动成功")
+                            # 在部署环境中使用更保守的处理方式
+                            import threading
+
+                            def run_batch_processing():
+                                try:
+                                    start_batch_ocr_processing(batch_job.id)
+                                    print(f"批量OCR处理启动成功")
+                                except Exception as e:
+                                    print(f"批量OCR处理失败: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    # 更新任务状态为失败
+                                    try:
+                                        batch_job.refresh_from_db()
+                                        batch_job.status = 'failed'
+                                        batch_job.save()
+                                    except Exception as save_error:
+                                        print(f"保存失败状态时出错: {save_error}")
+
+                            # 在部署环境中使用线程来避免阻塞主请求
+                            if os.getenv('REPL_DEPLOYMENT') == '1':
+                                thread = threading.Thread(target=run_batch_processing)
+                                thread.daemon = True
+                                thread.start()
+                                print(f"批量OCR处理已在后台线程中启动")
+                            else:
+                                run_batch_processing()
+
                         except Exception as e:
                             print(f"启动批量OCR处理失败: {e}")
                             import traceback

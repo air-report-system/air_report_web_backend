@@ -268,15 +268,31 @@ class GeminiOCRService(OCRService):
                 ]
             }
             
-            # 发送请求
+            # 发送请求 - 增加重试机制
             logger.info(f"发送请求到 {url}")
 
-            response = requests.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=self.timeout
-            )
+            max_retries = 3
+            retry_delay = 1
+
+            for attempt in range(max_retries):
+                try:
+                    response = requests.post(
+                        url,
+                        headers=headers,
+                        json=payload,
+                        timeout=self.timeout
+                    )
+                    break  # 成功则跳出重试循环
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"请求失败 (尝试 {attempt + 1}/{max_retries}): {e}, {retry_delay}秒后重试...")
+                        import time
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # 指数退避
+                        continue
+                    else:
+                        logger.error(f"请求失败，已达到最大重试次数: {e}")
+                        raise
             
             logger.info(f"请求响应状态码: {response.status_code}")
             

@@ -129,9 +129,14 @@ LOGGING = {
     },
 }
 
-# Celery配置 - 禁用异步任务
+# Celery配置 - 部署环境优化
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
+
+# 增加API超时时间以适应部署环境
+API_TIMEOUT_SECONDS = int(os.getenv('API_TIMEOUT_SECONDS', '120'))
+OCR_TIMEOUT_SECONDS = int(os.getenv('OCR_TIMEOUT_SECONDS', '180'))
+IMAGE_PROCESSING_TIMEOUT_SECONDS = int(os.getenv('IMAGE_PROCESSING_TIMEOUT_SECONDS', '240'))
 
 # 缓存配置
 CACHES = {

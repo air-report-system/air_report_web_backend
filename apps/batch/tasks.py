@@ -16,10 +16,13 @@ logger = logging.getLogger(__name__)
 def start_batch_ocr_processing(batch_job_id):
     """
     启动批量OCR处理（非异步版本，用于立即启动）
+    增强错误处理和超时管理
 
     Args:
         batch_job_id: 批量任务ID
     """
+    import os
+
     try:
         # 获取批量任务
         batch_job = BatchJob.objects.get(id=batch_job_id)
@@ -47,6 +50,13 @@ def start_batch_ocr_processing(batch_job_id):
         settings = batch_job.settings or {}
         use_multi_ocr = settings.get('use_multi_ocr', False)
         ocr_count = settings.get('ocr_count', 3)
+
+        # 在部署环境中使用更保守的处理方式
+        is_deployment = os.getenv('REPL_DEPLOYMENT') == '1'
+        if is_deployment:
+            print("部署环境：使用保守的批量处理模式")
+            # 减少并发，增加延迟
+            ocr_count = min(ocr_count, 2)  # 限制OCR次数
 
         # 为每个文件项启动OCR处理
         for file_item in file_items:
@@ -125,18 +135,90 @@ def start_batch_ocr_processing(batch_job_id):
                         file_item.ocr_result = ocr_result
                         file_item.save()
 
-                    # 调用现有的OCR处理任务
+                    # 调用现有的OCR处理任务 - 增强错误处理
                     from apps.ocr.tasks import process_image_ocr
-                    task = process_image_ocr.delay(
-                        file_item.file.id,
-                        batch_job.created_by.id,
-                        use_multi_ocr,
-                        ocr_count
-                    )
-                    print(f"启动OCR任务: {task.id} for {file_item.file.original_name}")
+
+                    try:
+                        if is_deployment:
+                            # 部署环境：同步处理以避免超时问题
+                            print(f"部署环境：同步处理 {file_item.file.original_name}")
+
+                            # 直接调用OCR处理函数
+                            if use_multi_ocr:
+                                from apps.ocr.tasks import enhanced_multi_ocr_process
+                                result = enhanced_multi_ocr_process(
+                                    file_item.file.file.path,
+                                    ocr_count
+                                )
+                            else:
+                                from apps.ocr.tasks import single_ocr_process
+                                result = single_ocr_process(file_item.file.file.path)
+
+                            # 创建OCR结果记录
+                            from apps.ocr.models import OCRResult
+                            ocr_result = OCRResult.objects.create(
+                                file=file_item.file,
+                                phone=result.get('phone', ''),
+                                date=result.get('date', ''),
+                                temperature=result.get('temperature', ''),
+                                humidity=result.get('humidity', ''),
+                                check_type=result.get('check_type', 'initial'),
+                                points_data=result.get('points_data', {}),
+                                raw_response=result.get('raw_response', ''),
+                                confidence_score=result.get('confidence_score', 0.0),
+                                ocr_attempts=result.get('ocr_attempts', 1),
+                                has_conflicts=result.get('has_conflicts', False),
+                                conflict_details=result.get('conflict_details', {}),
+                                status='completed',
+                                created_by=batch_job.created_by
+                            )
+
+                            # 包装结果
+                            result = {
+                                'status': 'success',
+                                'ocr_result_id': ocr_result.id
+                            }
+
+                            # 更新文件项状态
+                            if result.get('status') == 'success':
+                                file_item.status = 'completed'
+                                # 关联OCR结果
+                                if 'ocr_result_id' in result:
+                                    from apps.ocr.models import OCRResult
+                                    try:
+                                        ocr_result_obj = OCRResult.objects.get(id=result['ocr_result_id'])
+                                        file_item.ocr_result = ocr_result_obj
+                                    except OCRResult.DoesNotExist:
+                                        logger.warning(f"OCR结果 {result['ocr_result_id']} 不存在")
+                            else:
+                                file_item.status = 'failed'
+                                file_item.error_message = result.get('error', '处理失败')
+
+                            file_item.save()
+
+                        else:
+                            # 开发环境：异步处理
+                            task = process_image_ocr.delay(
+                                file_item.file.id,
+                                batch_job.created_by.id,
+                                use_multi_ocr,
+                                ocr_count
+                            )
+                            print(f"启动OCR任务: {task.id} for {file_item.file.original_name}")
+
+                    except Exception as ocr_error:
+                        print(f"OCR处理失败: {ocr_error}")
+                        file_item.status = 'failed'
+                        file_item.error_message = str(ocr_error)
+                        file_item.save()
 
                 # 更新批量任务进度
                 update_batch_job_progress(batch_job)
+
+                # 在部署环境中添加延迟以避免API限制
+                if is_deployment:
+                    import time
+                    time.sleep(2)  # 2秒延迟
 
             except Exception as e:
                 print(f"处理文件失败: {file_item.file.original_name}, 错误: {e}")
