@@ -327,6 +327,12 @@ class BulkFileUploadAndBatchView(APIView):
                         hash_md5=file_hash
                     ).first()
 
+                    # 如果找到记录但物理文件缺失，则视为不存在，重新上传
+                    from django.core.files.storage import default_storage
+                    if existing_file and not default_storage.exists(existing_file.file.name):
+                        print(f"记录ID={existing_file.id} 的物理文件 {existing_file.file.name} 不存在，忽略此记录")
+                        existing_file = None
+
                     if existing_file:
                         # 如果文件已存在，直接使用现有文件
                         print(f"找到现有文件: {existing_file.id}")
