@@ -195,10 +195,10 @@ class OCRService:
             except ValueError:
                 continue
         
-        # 为点位数据分配名称
-        point_names = ['客厅', '主卧', '次卧', '厨房', '书房', '卫生间']
-        for i, value in enumerate(filtered_numbers[:len(point_names)]):
-            result['points_data'][point_names[i]] = value
+        # 不自动分配默认的房间名称，保持点位数据为空
+        # 只有当 OCR 能够识别出具体的房间名称时才添加到 points_data
+        # 默认情况下 points_data 保持为空字典
+        pass
         
         return result
 
