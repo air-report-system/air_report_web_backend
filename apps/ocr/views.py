@@ -305,7 +305,7 @@ class UploadAndProcessView(APIView):
                                 'ocr_result_id': existing_ocr.id,
                                 'status': existing_ocr.status,
                                 'phone': existing_ocr.phone,
-                                'date': existing_ocr.date.isoformat() if existing_ocr.date else None,
+                                'date': existing_ocr.date if existing_ocr.date else None,
                                 'temperature': existing_ocr.temperature,
                                 'humidity': existing_ocr.humidity,
                                 'check_type': existing_ocr.check_type
@@ -358,7 +358,7 @@ class UploadAndProcessView(APIView):
                                 'ocr_result_id': ocr_result.id,
                                 'status': ocr_result.status,
                                 'phone': ocr_result.phone,
-                                'date': ocr_result.date.isoformat() if ocr_result.date else None,
+                                'date': ocr_result.date if ocr_result.date else None,
                                 'temperature': ocr_result.temperature,
                                 'humidity': ocr_result.humidity,
                                 'check_type': ocr_result.check_type,
