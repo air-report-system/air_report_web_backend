@@ -131,7 +131,7 @@ aof-rewrite-incremental-fsync yes
 rdb-save-incremental-fsync yes
 
 # 模块配置
-loadmodule-bulk-size 1
+# loadmodule /path/to/module.so  # 如需加载模块，请取消注释并指定正确路径
 EOF
     
     log_success "Redis配置文件生成完成: $config_file"
