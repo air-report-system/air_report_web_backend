@@ -183,3 +183,6 @@ batch/temp/
 
 # 月度报表临时文件
 monthly/temp/
+
+# Redis数据库文件
+dump.rdb

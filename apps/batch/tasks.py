@@ -568,37 +568,76 @@ def monitor_batch_progress(batch_job_id, group_id):
 def update_batch_job_stats(batch_job_id):
     """
     更新批量任务统计信息
-    
+
     Args:
         batch_job_id: 批量任务ID
     """
     try:
         with transaction.atomic():
             batch_job = BatchJob.objects.select_for_update().get(id=batch_job_id)
-            
+
             # 统计文件项状态
             file_items = BatchFileItem.objects.filter(batch_job=batch_job)
-            processed_count = file_items.filter(status='completed').count()
+            total_files = file_items.count()
+            completed_count = file_items.filter(status='completed').count()
             failed_count = file_items.filter(status='failed').count()
-            
+            processing_count = file_items.filter(status='processing').count()
+            pending_count = file_items.filter(status='pending').count()
+
+            # 已处理的文件数量（包括完成、失败）
+            processed_count = completed_count + failed_count
+
             # 更新统计
+            batch_job.total_files = total_files
             batch_job.processed_files = processed_count
             batch_job.failed_files = failed_count
-            
+
             # 计算预计完成时间
             if batch_job.started_at and processed_count > 0:
                 elapsed_time = (timezone.now() - batch_job.started_at).total_seconds()
                 avg_time_per_file = elapsed_time / processed_count
-                remaining_files = batch_job.total_files - processed_count - failed_count
-                
+                remaining_files = total_files - processed_count
+
                 if remaining_files > 0:
                     estimated_remaining_time = avg_time_per_file * remaining_files
                     batch_job.estimated_completion = timezone.now() + timedelta(seconds=estimated_remaining_time)
-            
+
+            # 检查是否所有文件都处理完成
+            if processed_count == total_files and processing_count == 0:
+                if batch_job.status == 'running':
+                    batch_job.status = 'completed'
+                    batch_job.completed_at = timezone.now()
+
+                    # 发送任务完成通知
+                    send_batch_job_completed(batch_job.id, {
+                        'batch_job_id': batch_job.id,
+                        'status': 'completed',
+                        'total_files': total_files,
+                        'processed_files': processed_count,
+                        'failed_files': failed_count,
+                        'completed_files': completed_count
+                    })
+
             batch_job.save()
-            
+
+            # 发送进度更新
+            progress_percentage = batch_job.progress_percentage
+            send_batch_progress_update(batch_job.id, {
+                'batch_job_id': batch_job.id,
+                'progress_percentage': progress_percentage,
+                'processed_files': processed_count,
+                'failed_files': failed_count,
+                'status': batch_job.status,
+                'total_files': total_files,
+                'completed_files': completed_count,
+                'processing_files': processing_count,
+                'pending_files': pending_count
+            })
+
+            logger.info(f"批量任务进度更新: {batch_job.id} - {processed_count}/{total_files} ({progress_percentage:.1f}%)")
+
     except Exception as e:
-        print(f"更新批量任务统计失败: {e}")
+        logger.error(f"更新批量任务统计失败: {e}", exc_info=True)
 
 
 @shared_task

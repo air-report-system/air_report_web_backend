@@ -87,7 +87,37 @@ def process_image_ocr(self, file_id, user_id, use_multi_ocr=False, ocr_count=3, 
         # 标记文件为已处理
         file_obj.is_processed = True
         file_obj.save()
-        
+
+        # 更新关联的批量文件项状态
+        try:
+            from apps.batch.models import BatchFileItem
+            batch_file_items = BatchFileItem.objects.filter(
+                file=file_obj,
+                status='processing'
+            )
+
+            processing_time = (timezone.now() - ocr_result.processing_started_at).total_seconds() if ocr_result.processing_started_at else 1.0
+
+            for batch_item in batch_file_items:
+                batch_item.status = 'completed'
+                batch_item.ocr_result = ocr_result
+                batch_item.processing_time_seconds = max(processing_time, 1.0)
+                batch_item.save()
+
+                logger.info(f"已更新批量文件项状态: {batch_item.id} -> completed")
+
+                # 更新批量任务进度
+                try:
+                    from apps.batch.tasks import update_batch_job_stats
+                    update_batch_job_stats(batch_item.batch_job.id)
+                    logger.info(f"已更新批量任务进度: {batch_item.batch_job.id}")
+                except Exception as progress_error:
+                    logger.error(f"更新批量任务进度失败: {progress_error}")
+
+        except Exception as batch_error:
+            logger.warning(f"更新批量文件项状态失败: {batch_error}")
+            # 不影响主要的OCR处理流程
+
         return {
             'status': 'success',
             'ocr_result_id': ocr_result.id,
@@ -104,11 +134,40 @@ def process_image_ocr(self, file_id, user_id, use_multi_ocr=False, ocr_count=3, 
             ocr_result.error_message = str(e)
             ocr_result.processing_completed_at = timezone.now()
             ocr_result.save()
-        
+
+            # 更新关联的批量文件项状态为失败
+            try:
+                from apps.batch.models import BatchFileItem
+                batch_file_items = BatchFileItem.objects.filter(
+                    file_id=file_id,
+                    status='processing'
+                )
+
+                processing_time = (timezone.now() - ocr_result.processing_started_at).total_seconds() if ocr_result.processing_started_at else 1.0
+
+                for batch_item in batch_file_items:
+                    batch_item.status = 'failed'
+                    batch_item.error_message = str(e)
+                    batch_item.processing_time_seconds = max(processing_time, 1.0)
+                    batch_item.save()
+
+                    logger.info(f"已更新批量文件项状态: {batch_item.id} -> failed")
+
+                    # 更新批量任务进度
+                    try:
+                        from apps.batch.tasks import update_batch_job_stats
+                        update_batch_job_stats(batch_item.batch_job.id)
+                        logger.info(f"已更新批量任务进度: {batch_item.batch_job.id}")
+                    except Exception as progress_error:
+                        logger.error(f"更新批量任务进度失败: {progress_error}")
+
+            except Exception as batch_error:
+                logger.warning(f"更新批量文件项状态失败: {batch_error}")
+
         # 重试机制
         if self.request.retries < self.max_retries:
             raise self.retry(countdown=60 * (self.request.retries + 1))
-        
+
         return {
             'status': 'error',
             'error': str(e),
@@ -477,7 +536,37 @@ def process_image_ocr_sync(file_id, user_id, use_multi_ocr=False, ocr_count=3):
         # 标记文件为已处理
         file_obj.is_processed = True
         file_obj.save()
-        
+
+        # 更新关联的批量文件项状态
+        try:
+            from apps.batch.models import BatchFileItem
+            batch_file_items = BatchFileItem.objects.filter(
+                file=file_obj,
+                status='processing'
+            )
+
+            processing_time = (timezone.now() - ocr_result.processing_started_at).total_seconds() if ocr_result.processing_started_at else 1.0
+
+            for batch_item in batch_file_items:
+                batch_item.status = 'completed'
+                batch_item.ocr_result = ocr_result
+                batch_item.processing_time_seconds = max(processing_time, 1.0)
+                batch_item.save()
+
+                logger.info(f"已更新批量文件项状态: {batch_item.id} -> completed")
+
+                # 更新批量任务进度
+                try:
+                    from apps.batch.tasks import update_batch_job_stats
+                    update_batch_job_stats(batch_item.batch_job.id)
+                    logger.info(f"已更新批量任务进度: {batch_item.batch_job.id}")
+                except Exception as progress_error:
+                    logger.error(f"更新批量任务进度失败: {progress_error}")
+
+        except Exception as batch_error:
+            logger.warning(f"更新批量文件项状态失败: {batch_error}")
+            # 不影响主要的OCR处理流程
+
         return {
             'status': 'success',
             'ocr_result_id': ocr_result.id,
@@ -489,14 +578,43 @@ def process_image_ocr_sync(file_id, user_id, use_multi_ocr=False, ocr_count=3):
         
     except Exception as e:
         logger.error(f"同步OCR处理失败: {str(e)}", exc_info=True)
-        
+
         # 更新错误状态
         if 'ocr_result' in locals():
             ocr_result.status = 'failed'
             ocr_result.error_message = str(e)
             ocr_result.processing_completed_at = timezone.now()
             ocr_result.save()
-        
+
+            # 更新关联的批量文件项状态为失败
+            try:
+                from apps.batch.models import BatchFileItem
+                batch_file_items = BatchFileItem.objects.filter(
+                    file_id=file_id,
+                    status='processing'
+                )
+
+                processing_time = (timezone.now() - ocr_result.processing_started_at).total_seconds() if ocr_result.processing_started_at else 1.0
+
+                for batch_item in batch_file_items:
+                    batch_item.status = 'failed'
+                    batch_item.error_message = str(e)
+                    batch_item.processing_time_seconds = max(processing_time, 1.0)
+                    batch_item.save()
+
+                    logger.info(f"已更新批量文件项状态: {batch_item.id} -> failed")
+
+                    # 更新批量任务进度
+                    try:
+                        from apps.batch.tasks import update_batch_job_stats
+                        update_batch_job_stats(batch_item.batch_job.id)
+                        logger.info(f"已更新批量任务进度: {batch_item.batch_job.id}")
+                    except Exception as progress_error:
+                        logger.error(f"更新批量任务进度失败: {progress_error}")
+
+            except Exception as batch_error:
+                logger.warning(f"更新批量文件项状态失败: {batch_error}")
+
         return {
             'status': 'error',
             'error': str(e),
