@@ -65,16 +65,16 @@ log_info "• Workers: 3"
 log_info "• 超时: 300秒"
 log_info "• 模式: 生产优化"
 
-# 启动Gunicorn - 3个worker，生产配置
+# 启动Gunicorn - 3个worker，快速响应配置
 exec gunicorn config.wsgi:application \
     --bind 0.0.0.0:8000 \
     --workers 3 \
     --worker-class sync \
-    --timeout 300 \
-    --graceful-timeout 30 \
+    --timeout 120 \
+    --graceful-timeout 15 \
     --keep-alive 2 \
-    --max-requests 1000 \
-    --max-requests-jitter 100 \
+    --max-requests 500 \
+    --max-requests-jitter 50 \
     --worker-tmp-dir /dev/shm \
     --preload \
     --access-logfile - \

@@ -5,7 +5,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 from apps.core.views import HealthCheckView, detailed_health_check
 
@@ -17,14 +17,21 @@ def api_root(request):
         'message': 'API is running'
     })
 
+def simple_health_check(request):
+    """超简单的健康检查，立即返回200状态码"""
+    return HttpResponse("OK", status=200, content_type="text/plain")
+
 urlpatterns = [
     # 根路径 - 快速健康检查
-    path('', api_root, name='api-root'),
+    path('', simple_health_check, name='api-root'),
 
     # 专门的健康检查端点
-    path('health', api_root, name='health-simple'),  # 不带斜杠
-    path('health/', HealthCheckView.as_view(), name='health-check'),
+    path('health', simple_health_check, name='health-simple'),  # 不带斜杠
+    path('health/', simple_health_check, name='health-check'),
     path('health/detailed/', detailed_health_check, name='health-check-detailed'),
+
+    # API状态端点
+    path('api/', api_root, name='api-status'),
 
     # 管理后台
     path('admin/', admin.site.urls),

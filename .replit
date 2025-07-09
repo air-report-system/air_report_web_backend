@@ -54,8 +54,8 @@ externalPort = 80
 # 健康检查配置
 [deployment.healthcheck]
 path = "/health"
-timeout = 15
-interval = 5
+timeout = 10
+interval = 3
 
 # Git配置
 [gitHubImport]
