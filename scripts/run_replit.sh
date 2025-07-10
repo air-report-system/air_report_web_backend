@@ -40,6 +40,21 @@ if [ ! -f ".replit_setup_complete" ]; then
     log_warning "构建标记文件不存在，可能构建未完成"
 fi
 
+# 在部署的运行阶段，强制执行字体安装
+log_info "确保字体在当前环境中可用..."
+if [ -f "scripts/install_fonts_replit_fixed.sh" ]; then
+    chmod +x scripts/install_fonts_replit_fixed.sh
+    # 不再检查是否已安装，强制执行以刷新缓存
+    if bash scripts/install_fonts_replit_fixed.sh; then
+        log_info "字体安装/验证成功"
+    else
+        log_warning "字体安装/验证失败，PDF生成可能受影响"
+    fi
+else
+    log_warning "字体安装脚本未找到"
+fi
+
+
 # 启动Redis服务
 log_info "确保Redis服务运行..."
 if command -v redis-server >/dev/null 2>&1; then
