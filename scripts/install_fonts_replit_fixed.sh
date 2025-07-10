@@ -3,6 +3,11 @@
 # Replit环境字体安装脚本 - 调试增强版本
 # 专为解决并发执行和复制失败问题，添加详细调试信息
 
+# ==========================================================
+# ==      EXECUTING FONT SCRIPT V3 (PATH FIX)           ==
+# ==      TIMESTAMP: $(date)                          ==
+# ==========================================================
+
 set -e  # 遇到错误时退出
 
 # 颜色输出
@@ -185,7 +190,7 @@ install_fonts_simple() {
     # 创建用户字体目录
     # 关键修复：根据部署环境的fc-cache扫描路径，将字体安装到项目工作区内
     USER_FONTS_DIR="$PROJECT_ROOT/.local/share/fonts"
-    log_info "修正后的目标字体目录: $USER_FONTS_DIR"
+    log_info "===> [PATH-FIX] 修正后的目标字体目录: $USER_FONTS_DIR"
     
     log_debug "=== 目标字体目录设置 ==="
     log_debug "目标目录: $USER_FONTS_DIR"
