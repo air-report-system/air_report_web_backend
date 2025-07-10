@@ -69,10 +69,11 @@ echo "重新收集静态文件..."
 python manage.py collectstatic --noinput --clear --settings=config.settings.replit
 echo "✅ 静态文件重新收集完成"
 
-# 8. 清理数据库迁移缓存
-echo "清理数据库迁移缓存..."
-python manage.py migrate --fake-initial --settings=config.settings.replit 2>/dev/null || true
-echo "✅ 数据库迁移缓存已清理"
+# 8. 清理Django缓存文件
+echo "清理Django缓存文件..."
+rm -rf .django_cache 2>/dev/null || true
+rm -rf django_cache 2>/dev/null || true
+echo "✅ Django缓存文件已清理"
 
 # 9. 清理Replit相关缓存
 echo "清理Replit相关缓存..."
