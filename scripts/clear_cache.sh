@@ -25,6 +25,7 @@ echo "✅ 版本号已更新为: $NEW_VERSION (基础版本: $BASE_VERSION)"
 
 # 1. 清理Python字节码缓存
 echo "清理Python字节码缓存..."
+cd ..
 find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 find . -name "*.pyc" -type f -delete 2>/dev/null || true
 find . -name "*.pyo" -type f -delete 2>/dev/null || true
