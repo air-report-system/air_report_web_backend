@@ -183,7 +183,10 @@ install_fonts_simple() {
     done
     
     # 创建用户字体目录
-    USER_FONTS_DIR="$HOME/.local/share/fonts"
+    # 关键修复：根据部署环境的fc-cache扫描路径，将字体安装到项目工作区内
+    USER_FONTS_DIR="$PROJECT_ROOT/.local/share/fonts"
+    log_info "修正后的目标字体目录: $USER_FONTS_DIR"
+    
     log_debug "=== 目标字体目录设置 ==="
     log_debug "目标目录: $USER_FONTS_DIR"
     
