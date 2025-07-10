@@ -1,126 +1,146 @@
-"""
-核心视图
-"""
-import os
-import subprocess
+from django.shortcuts import render
 from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.views.decorators.csrf import csrf_exempt
-from django.db import connection
 from django.conf import settings
-from rest_framework.views import APIView
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.views import View
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+import os
+import sys
+import platform
+import datetime
+import django
 
+# Create your views here.
 
-class HealthCheckView(APIView):
-    """健康检查视图"""
-    permission_classes = []
-    authentication_classes = []
+def get_version():
+    """
+    从.version文件读取版本信息
+    """
+    try:
+        import os
+        version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.version')
+        with open(version_file, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except Exception as e:
+        return '1.0.0_unknown'
 
-    def get(self, request):
-        """健康检查端点"""
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def version_info(request):
+    """
+    返回应用版本和部署信息
+    """
+    try:
+        # 从.version文件读取版本
+        version = get_version()
+        
+        # 构建版本信息
+        version_data = {
+            'app_name': '室内空气检测数据处理系统 - 后端API',
+            'version': version,
+            'version_source': '.version文件',
+            'deploy_time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'django_version': django.get_version(),
+            'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            'platform': platform.system(),
+            'platform_version': platform.release(),
+            'debug_mode': settings.DEBUG,
+            'database_engine': settings.DATABASES['default']['ENGINE'],
+            'settings_module': os.getenv('DJANGO_SETTINGS_MODULE', 'config.settings.base'),
+            'allowed_hosts': settings.ALLOWED_HOSTS,
+            'cors_origins': getattr(settings, 'CORS_ALLOWED_ORIGINS', []),
+            'static_url': settings.STATIC_URL,
+            'media_url': settings.MEDIA_URL,
+            'timezone': settings.TIME_ZONE,
+            'environment': {
+                'PYTHONPATH': os.getenv('PYTHONPATH', ''),
+                'DJANGO_SETTINGS_MODULE': os.getenv('DJANGO_SETTINGS_MODULE', ''),
+                'REPL_DEPLOYMENT': os.getenv('REPL_DEPLOYMENT', 'false'),
+                'NODE_ENV': os.getenv('NODE_ENV', 'development')
+            }
+        }
+        
+        return Response(version_data, status=status.HTTP_200_OK)
+    
+    except Exception as e:
         return Response({
+            'error': '版本信息获取失败',
+            'detail': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def health_check(request):
+    """
+    健康检查端点
+    """
+    try:
+        # 检查数据库连接
+        from django.db import connection
+        cursor = connection.cursor()
+        cursor.execute("SELECT 1")
+        db_status = "connected"
+        
+        # 检查Redis连接（如果配置了）
+        redis_status = "not configured"
+        try:
+            import redis
+            redis_client = redis.Redis(host='127.0.0.1', port=6379, db=0)
+            redis_client.ping()
+            redis_status = "connected"
+        except:
+            redis_status = "disconnected"
+        
+        health_data = {
             'status': 'healthy',
-            'message': '室内空气检测平台API运行正常'
-        }, status=status.HTTP_200_OK)
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'database': db_status,
+            'redis': redis_status,
+            'services': {
+                'api': 'running',
+                'static_files': 'configured',
+                'media_files': 'configured'
+            }
+        }
+        
+        return Response(health_data, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        return Response({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @csrf_exempt
-@require_http_methods(["GET"])
-def detailed_health_check(request):
+def root_view(request):
     """
-    详细健康检查端点
-    检查数据库连接、字体安装、LibreOffice等关键组件
+    根路径视图 - 提供基本的服务信息
     """
-    health_status = {
-        "status": "healthy",
-        "timestamp": None,
-        "checks": {
-            "database": False,
-            "fonts": False,
-            "libreoffice": False,
-            "environment": False
-        },
-        "details": {}
-    }
-
-    # 检查数据库连接
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-        health_status["checks"]["database"] = True
-        health_status["details"]["database"] = "Connected"
-    except Exception as e:
-        health_status["checks"]["database"] = False
-        health_status["details"]["database"] = f"Error: {str(e)}"
-
-    # 检查字体安装
-    try:
-        result = subprocess.run(
-            ["fc-list"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode == 0:
-            fonts_output = result.stdout.lower()
-            required_fonts = ["simsun", "arial", "calibri"]
-            found_fonts = [font for font in required_fonts if font in fonts_output]
-
-            health_status["checks"]["fonts"] = len(found_fonts) > 0
-            health_status["details"]["fonts"] = {
-                "found": found_fonts,
-                "total_fonts": len(fonts_output.split('\n')) - 1
-            }
-        else:
-            health_status["checks"]["fonts"] = False
-            health_status["details"]["fonts"] = "fc-list command failed"
-    except Exception as e:
-        health_status["checks"]["fonts"] = False
-        health_status["details"]["fonts"] = f"Error: {str(e)}"
-
-    # 检查LibreOffice
-    try:
-        result = subprocess.run(
-            ["libreoffice", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode == 0:
-            health_status["checks"]["libreoffice"] = True
-            health_status["details"]["libreoffice"] = result.stdout.strip()
-        else:
-            health_status["checks"]["libreoffice"] = False
-            health_status["details"]["libreoffice"] = "LibreOffice not found"
-    except Exception as e:
-        health_status["checks"]["libreoffice"] = False
-        health_status["details"]["libreoffice"] = f"Error: {str(e)}"
-
-    # 检查环境变量
-    required_env_vars = ["DJANGO_SETTINGS_MODULE"]
-    env_status = {}
-
-    for var in required_env_vars:
-        env_status[var] = os.getenv(var) is not None
-
-    health_status["checks"]["environment"] = all(env_status.values())
-    health_status["details"]["environment"] = {
-        "variables": env_status,
-        "replit_detected": bool(os.getenv('REPL_ID') or os.getenv('REPLIT_DEV_DOMAIN')),
-        "debug_mode": settings.DEBUG
-    }
-
-    # 设置时间戳
-    from datetime import datetime
-    health_status["timestamp"] = datetime.now().isoformat()
-
-    # 确定整体状态
-    all_healthy = all(health_status["checks"].values())
-    health_status["status"] = "healthy" if all_healthy else "unhealthy"
-
-    # 返回适当的HTTP状态码
-    status_code = 200 if all_healthy else 503
-
-    return JsonResponse(health_status, status=status_code)
+    if request.method == 'GET':
+        version = get_version()
+        return JsonResponse({
+            'message': '室内空气检测数据处理系统 - 后端API',
+            'version': version,
+            'status': 'running',
+            'endpoints': {
+                'api': '/api/v1/',
+                'admin': '/admin/',
+                'version': '/api/v1/version/',
+                'health': '/api/v1/health/',
+                'docs': '/api/v1/docs/'
+            },
+            'version_source': '.version文件',
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        })
+    else:
+        return JsonResponse({
+            'error': 'Method not allowed',
+            'allowed_methods': ['GET']
+        }, status=405)

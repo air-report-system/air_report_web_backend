@@ -7,7 +7,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
-from apps.core.views import HealthCheckView, detailed_health_check
+from apps.core.views import version_info, health_check, root_view
 
 
 def api_root(request):
@@ -26,16 +26,20 @@ def simple_health_check(request):
         return HttpResponse(f"OK-{str(e)[:50]}", status=200, content_type="text/plain")
 
 urlpatterns = [
-    # 根路径 - 快速健康检查
-    path('', simple_health_check, name='api-root'),
+    # 根路径 - 基本API信息
+    path('', root_view, name='api-root'),
 
     # 专门的健康检查端点
     path('health', simple_health_check, name='health-simple'),  # 不带斜杠
     path('health/', simple_health_check, name='health-check'),
-    path('health/detailed/', detailed_health_check, name='health-check-detailed'),
+    path('api/v1/health/', health_check, name='health-check-detailed'),
 
     # API状态端点
     path('api/', api_root, name='api-status'),
+    path('api/v1/', api_root, name='api-v1-status'),
+    
+    # 版本信息端点
+    path('api/v1/version/', version_info, name='version-info'),
 
     # 管理后台
     path('admin/', admin.site.urls),
