@@ -12,6 +12,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# ==========================================================
+# ==      EXECUTING UPDATED run_replit.sh v2            ==
+# ==      TIMESTAMP: $(date)      ==
+# ==========================================================
+
 log_info() {
     echo -e "${BLUE}[RUN]${NC} $1"
 }
@@ -40,19 +45,28 @@ if [ ! -f ".replit_setup_complete" ]; then
     log_warning "构建标记文件不存在，可能构建未完成"
 fi
 
-# 在部署的运行阶段，强制执行字体安装
-log_info "确保字体在当前环境中可用..."
+# 强制执行字体安装和缓存刷新
+log_info "===> [FONT-FIX] 开始强制执行字体安装/刷新..."
 if [ -f "scripts/install_fonts_replit_fixed.sh" ]; then
     chmod +x scripts/install_fonts_replit_fixed.sh
-    # 不再检查是否已安装，强制执行以刷新缓存
+    
     if bash scripts/install_fonts_replit_fixed.sh; then
-        log_info "字体安装/验证成功"
+        log_info "===> [FONT-FIX] 字体脚本执行成功。"
     else
-        log_warning "字体安装/验证失败，PDF生成可能受影响"
+        log_warning "===> [FONT-FIX] 字体脚本执行失败，但这不应阻止启动。"
+    fi
+    # 额外强制刷新一次字体缓存
+    log_info "===> [FONT-FIX] 再次强制刷新系统字体缓存..."
+    if command -v fc-cache &>/dev/null; then
+        fc-cache -f -v
+        log_info "===> [FONT-FIX] fc-cache 刷新成功。"
+    else
+        log_warning "===> [FONT-FIX] fc-cache 命令不可用。"
     fi
 else
-    log_warning "字体安装脚本未找到"
+    log_warning "===> [FONT-FIX] 字体安装脚本未找到"
 fi
+log_info "===> [FONT-FIX] 字体安装/刷新步骤结束。"
 
 
 # 启动Redis服务
