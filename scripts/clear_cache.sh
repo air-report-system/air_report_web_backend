@@ -65,10 +65,6 @@ else
     echo "⚠️ uv命令未找到，跳过uv缓存清理"
 fi
 
-# 7. 重新收集静态文件
-echo "重新收集静态文件..."
-python manage.py collectstatic --noinput --clear --settings=config.settings.replit
-echo "✅ 静态文件重新收集完成"
 
 # 8. 清理Django缓存文件
 echo "清理Django缓存文件..."
