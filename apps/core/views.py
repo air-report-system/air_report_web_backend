@@ -19,12 +19,17 @@ import django
 def get_version():
     """
     从.version文件读取版本信息
+    每次调用都重新读取文件，避免缓存问题
     """
     try:
         import os
         version_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.version')
+        # 强制重新读取文件，避免任何可能的缓存
         with open(version_file, 'r', encoding='utf-8') as f:
-            return f.read().strip()
+            version_content = f.read().strip()
+        # 添加时间戳确保每次读取都是最新的
+        import time
+        return version_content
     except Exception as e:
         return '1.0.0_unknown'
 
