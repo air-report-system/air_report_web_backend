@@ -79,7 +79,11 @@ def process_image_ocr(self, file_id, user_id, use_multi_ocr=False, ocr_count=3, 
         # 创建或更新联系人信息
         try:
             if ocr_result.phone:
-                create_or_update_contact_info_enhanced(ocr_result)
+                create_or_update_contact_info_enhanced(
+                    ocr_result,
+                    contact_name=result.get('contact_name'),
+                    address=result.get('address')
+                )
         except Exception as contact_error:
             logger.warning(f"联系人信息创建失败: {contact_error}")
             # 不影响主要的OCR处理流程
@@ -357,12 +361,14 @@ def analyze_multi_ocr_results(results):
     return final_result
 
 
-def create_or_update_contact_info_enhanced(ocr_result):
+def create_or_update_contact_info_enhanced(ocr_result, contact_name: str = None, address: str = None):
     """
     创建或更新联系人信息（增强版）- 使用数据库表
 
     Args:
         ocr_result: OCR结果对象
+        contact_name: 从OCR直接识别的姓名
+        address: 从OCR直接识别的地址
     """
     if not ocr_result.phone:
         return
@@ -381,28 +387,36 @@ def create_or_update_contact_info_enhanced(ocr_result):
             ocr_result.points_data or {}
         )
 
+        # 优先使用匹配结果，如果匹配不到，则使用OCR直接识别的结果作为回退
+        final_contact_name = match_result.get('contact_name') or contact_name or ''
+        final_address = match_result.get('address') or address or ''
+        final_full_phone = match_result.get('full_phone') or ocr_result.phone
+
         # 查找是否已存在联系人信息
         contact_info, created = ContactInfo.objects.get_or_create(
             ocr_result=ocr_result,
             defaults={
-                'contact_name': match_result.get('contact_name', ''),
-                'full_phone': match_result.get('full_phone', ocr_result.phone),
-                'address': match_result.get('address', ''),
-                'match_type': match_result.get('match_type', 'manual'),
-                'similarity_score': match_result.get('similarity_score', 0.0),
-                'match_source': match_result.get('match_source', 'manual'),
+                'contact_name': final_contact_name,
+                'full_phone': final_full_phone,
+                'address': final_address,
+                'match_type': match_result.get('match_type', 'ocr_direct'),
+                'similarity_score': match_result.get('similarity_score', 0.9), # OCR直接识别可信度设为0.9
+                'match_source': match_result.get('match_source', 'ocr_direct'),
                 'csv_record': match_result.get('csv_record')
             }
         )
 
         if not created:
             # 更新现有联系人信息
-            contact_info.contact_name = match_result.get('contact_name', contact_info.contact_name)
-            contact_info.full_phone = match_result.get('full_phone', ocr_result.phone)
-            contact_info.address = match_result.get('address', contact_info.address)
-            contact_info.match_type = match_result.get('match_type', contact_info.match_type)
-            contact_info.similarity_score = match_result.get('similarity_score', contact_info.similarity_score)
-            contact_info.match_source = match_result.get('match_source', contact_info.match_source)
+            contact_info.contact_name = final_contact_name
+            contact_info.full_phone = final_full_phone
+            contact_info.address = final_address
+            # 如果已有匹配，则不覆盖匹配类型，否则更新为直接识别
+            if contact_info.match_type in ['manual', 'ocr_direct']:
+                contact_info.match_type = match_result.get('match_type', 'ocr_direct')
+                contact_info.similarity_score = match_result.get('similarity_score', 0.9)
+                contact_info.match_source = match_result.get('match_source', 'ocr_direct')
+
             contact_info.save()
 
     except Exception:
@@ -527,7 +541,11 @@ def process_image_ocr_sync(file_id, user_id, use_multi_ocr=False, ocr_count=3):
         # 创建或更新联系人信息
         try:
             if ocr_result.phone:
-                create_or_update_contact_info_enhanced(ocr_result)
+                create_or_update_contact_info_enhanced(
+                    ocr_result,
+                    contact_name=result.get('contact_name'),
+                    address=result.get('address')
+                )
                 logger.info("联系人信息已创建/更新")
         except Exception as contact_error:
             logger.warning(f"联系人信息创建失败: {contact_error}")

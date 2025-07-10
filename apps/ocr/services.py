@@ -81,6 +81,8 @@ class OCRService:
                     'humidity': str(data.get('humidity', '')),
                     'check_type': str(data.get('check_type', 'initial')),
                     'points_data': data.get('points_data', {}),
+                    'contact_name': str(data.get('contact_name', '')), # 提取联系人姓名
+                    'address': str(data.get('address', '')), # 提取地址
                     'raw_response': response_text,
                     'confidence_score': 0.8
                 }
@@ -210,7 +212,7 @@ class GeminiOCRService(OCRService):
         super().__init__()
         self.api_key = settings.GEMINI_API_KEY
         self.base_url = getattr(settings, 'GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com')
-        self.model_name = getattr(settings, 'GEMINI_MODEL_NAME', 'gemini-2.0-flash-exp')
+        self.model_name = getattr(settings, 'GEMINI_MODEL_NAME', 'gemini-1.5-flash-latest')
 
         # 代理设置已移除
         self.proxies = None
@@ -359,28 +361,27 @@ class GeminiOCRService(OCRService):
         return """
 请仔细分析这张室内空气检测报告图片，提取以下信息并以JSON格式返回：
 
-**重要：请特别仔细查找电话号码，它可能是手写的，位置可能在：**
-- 客户姓名旁边
-- 联系人信息区域
-- 表格的任何位置
-- 可能写得比较潦草或不清楚
+**重要：请特别仔细查找联系人姓名、电话和地址，它们可能是手写的，位置可能分散在表格的任何位置。**
 
-1. 联系电话（11位手机号码，通常以1开头，如：17778632107、13812345678）
-2. 检测日期（MM-DD格式，如：06-21）
-3. 现场温度（数字，如：25）
-4. 现场湿度（数字，如：60）
-5. 检测类型（初检或复检）
-6. 各个房间的甲醛检测数值（mg/m³）
+1.  **联系人姓名 (contact_name)**：客户的姓名，例如 "李先生", "王女士", "张三"。
+2.  **联系电话 (phone)**：11位手机号码，通常以1开头，如：17778632107、13812345678。
+3.  **项目地址 (address)**：完整的检测地址，例如 "四川省成都市双流区天府大道南段1299号"。
+4.  **检测日期 (date)**：MM-DD格式，如：06-21。
+5.  **现场温度 (temperature)**：数字，如：25。
+6.  **现场湿度 (humidity)**：数字，如：60。
+7.  **检测类型 (check_type)**：初检或复检。
+8.  **各个房间的甲醛检测数值 (points_data)**：一个包含房间名称和对应数值的JSON对象。
 
-**电话号码识别要点：**
-- 仔细查看所有数字，特别是11位连续数字
-- 电话号码可能分行书写或有空格
-- 即使字迹不清楚也要尽力识别
-- 常见格式：177 7863 2107 或 17778632107
+**识别要点：**
+- 姓名、电话、地址信息可能写得比较潦草或不清楚，请尽力识别。
+- 电话号码可能分行书写或有空格。
+- 地址信息可能很长，请完整提取。
 
-请按以下JSON格式返回结果：
+请严格按以下JSON格式返回结果，确保所有字段都存在：
 {
+    "contact_name": "联系人姓名（如果找到的话）",
     "phone": "11位手机号码（如果找到的话）",
+    "address": "完整的项目地址（如果找到的话）",
     "date": "MM-DD",
     "temperature": "温度数值",
     "humidity": "湿度数值",
@@ -392,10 +393,10 @@ class GeminiOCRService(OCRService):
 }
 
 注意：
-- 如果某项信息无法识别，请留空字符串
-- 数值请保留小数点后3位
-- 检测类型：初检用"initial"，复检用"recheck"
-- 房间名称使用中文（如：客厅、主卧、次卧、厨房等）
+- 如果某项信息无法识别，请将该字段的值留空字符串 ""。
+- 数值请保留小数点后3位。
+- 检测类型：初检用"initial"，复检用"recheck"。
+- 房间名称使用中文（如：客厅、主卧、次卧、厨房等）。
 """
 
 
