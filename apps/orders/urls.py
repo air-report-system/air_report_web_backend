@@ -4,7 +4,7 @@
 from django.urls import path
 from .views import (
     ProcessOrderInfoView, ProcessMultipleOrdersView, UpdateOrderDataView, SubmitOrderView,
-    SubmitMultipleOrdersView, OrderRecordListView, OrderRecordDetailView
+    SubmitMultipleOrdersView, OrderRecordListView, OrderRecordDetailView, OrderExportView
 )
 
 app_name = 'orders'
@@ -27,4 +27,8 @@ urlpatterns = [
     path('records', OrderRecordListView.as_view(), name='order-records-no-slash'),
     path('records/<int:pk>/', OrderRecordDetailView.as_view(), name='order-record-detail'),
     path('records/<int:pk>', OrderRecordDetailView.as_view(), name='order-record-detail-no-slash'),
+    
+    # 订单导出
+    path('export/', OrderExportView.as_view(), name='order-export'),
+    path('export', OrderExportView.as_view(), name='order-export-no-slash'),
 ]

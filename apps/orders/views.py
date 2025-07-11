@@ -1,15 +1,19 @@
 """
 订单信息记录视图
 """
+import csv
+import io
 import logging
 from rest_framework import status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
 from django.db import transaction
+from django.http import HttpResponse
 from django.utils import timezone
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from .services import OrderInfoProcessor
 from .serializers import (
@@ -393,3 +397,167 @@ class OrderRecordDetailView(RetrieveUpdateDestroyAPIView):
         """软删除"""
         instance.is_active = False
         instance.save()
+
+
+class OrderExportView(APIView):
+    """订单CSV导出视图"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    @extend_schema(
+        operation_id='export_orders',
+        summary='导出月度订单CSV',
+        description='''
+        导出指定月份的订单数据为CSV格式文件。
+        
+        ## 功能说明
+        - 支持按年月筛选订单数据
+        - 导出标准CSV格式，UTF-8编码，支持中文
+        - 包含订单核心字段信息
+        - 自动生成文件名包含导出时间
+        
+        ## 使用示例
+        ```
+        GET /api/v1/orders/export/?month=2024-01
+        ```
+        
+        ## 响应说明
+        - 成功：返回CSV文件下载
+        - 无数据：返回404错误
+        - 参数错误：返回400错误
+        ''',
+        parameters=[
+            OpenApiParameter(
+                name='month',
+                description='指定月份，格式：YYYY-MM',
+                required=True,
+                type=str,
+                examples=['2024-01', '2024-12']
+            )
+        ],
+        responses={
+            200: {
+                'description': 'CSV文件下载',
+                'content': {
+                    'text/csv': {
+                        'example': '订单ID,客户姓名,客户电话,客户地址,商品类型,成交金额,面积,履约时间,CMA点位数量,备注赠品,创建时间\n1,张三,13800138001,北京市朝阳区...'
+                    }
+                }
+            },
+            400: {
+                'description': '参数错误',
+                'content': {
+                    'application/json': {
+                        'example': {'error': 'month参数格式错误，应为YYYY-MM格式'}
+                    }
+                }
+            },
+            404: {
+                'description': '无数据',
+                'content': {
+                    'application/json': {
+                        'example': {'error': '2024年1月没有订单数据'}
+                    }
+                }
+            }
+        },
+        tags=['订单管理']
+    )
+    def get(self, request):
+        """导出指定月份的订单为CSV格式"""
+        # 获取月份参数
+        month_param = request.query_params.get('month')
+        if not month_param:
+            return Response(
+                {"error": "缺少month参数，格式应为YYYY-MM"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 验证月份格式
+        try:
+            year, month = month_param.split('-')
+            year = int(year)
+            month = int(month)
+            if month < 1 or month > 12:
+                raise ValueError("月份必须在1-12之间")
+        except (ValueError, AttributeError) as e:
+            return Response(
+                {"error": f"month参数格式错误，应为YYYY-MM格式: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # 查询指定月份的订单数据
+            queryset = CSVRecord.objects.filter(
+                is_active=True,
+                履约时间__year=year,
+                履约时间__month=month
+            ).order_by('履约时间', 'created_at')
+            
+            # 检查是否有数据
+            if not queryset.exists():
+                return Response(
+                    {"error": f"{year}年{month}月没有订单数据"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # 创建CSV内容
+            output = io.StringIO()
+            writer = csv.writer(output)
+            
+            # 写入CSV头部
+            headers = [
+                '订单ID',
+                '客户姓名', 
+                '客户电话',
+                '客户地址',
+                '商品类型',
+                '成交金额',
+                '面积',
+                '履约时间',
+                'CMA点位数量',
+                '备注赠品',
+                '创建时间'
+            ]
+            writer.writerow(headers)
+            
+            # 写入订单数据
+            for record in queryset:
+                row = [
+                    record.id,
+                    record.客户姓名 or '',
+                    record.客户电话 or '',
+                    record.客户地址 or '',
+                    record.商品类型 or '',
+                    float(record.成交金额) if record.成交金额 else '',
+                    record.面积 or '',
+                    record.履约时间.strftime('%Y-%m-%d') if record.履约时间 else '',
+                    record.CMA点位数量 or '',
+                    record.备注赠品 or '',
+                    record.created_at.strftime('%Y-%m-%d %H:%M:%S') if record.created_at else ''
+                ]
+                writer.writerow(row)
+            
+            # 准备HTTP响应
+            csv_content = output.getvalue()
+            output.close()
+            
+            # 创建HTTP响应，设置为CSV文件下载
+            response = HttpResponse(
+                csv_content.encode('utf-8-sig'),  # 使用UTF-8 BOM，确保Excel能正确识别中文
+                content_type='text/csv; charset=utf-8'
+            )
+            
+            # 设置文件下载头部
+            filename = f"订单导出_{year}年{month:02d}月_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            logger.info(f"用户 {request.user} 成功导出 {year}年{month}月 订单数据，共 {queryset.count()} 条记录")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"导出订单CSV失败: {e}")
+            return Response(
+                {"error": f"导出失败: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
