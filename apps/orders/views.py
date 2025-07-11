@@ -500,6 +500,12 @@ class OrderExportView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
+            # 性能优化：对于大数据量，可以考虑使用 iterator() 或分批处理
+            # 当前实现适用于中小规模数据（< 10万条记录）
+            record_count = queryset.count()
+            if record_count > 50000:
+                logger.warning(f"大数据量导出警告：{record_count} 条记录，可能需要较长时间")
+            
             # 创建CSV内容
             output = io.StringIO()
             writer = csv.writer(output)
