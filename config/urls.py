@@ -5,8 +5,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from django.http import JsonResponse, HttpResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+from django.http import JsonResponse, HttpResponse
 from apps.core.views import version_info, health_check, root_view
 
 
@@ -37,7 +37,12 @@ urlpatterns = [
     # API状态端点
     path('api/', api_root, name='api-status'),
     path('api/v1/', api_root, name='api-v1-status'),
-    
+
+    # API文档端点
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+
     # 版本信息端点
     path('api/v1/version/', version_info, name='version-info'),
 
@@ -59,6 +64,7 @@ urlpatterns = [
     path('api/v1/monthly/', include('apps.monthly.urls')),
     path('api/v1/orders/', include('apps.orders.urls')),
     path('api/v1/orders', include('apps.orders.urls')),  # 不带斜杠的版本
+    path('api/v1/ai-config/', include('apps.ai_config.urls')),
 ]
 
 # 静态文件和媒体文件服务

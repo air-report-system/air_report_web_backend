@@ -46,6 +46,7 @@ LOCAL_APPS = [
     'apps.batch',
     'apps.monthly',
     'apps.orders',
+    'apps.ai_config',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -163,9 +164,23 @@ REST_FRAMEWORK = {
 # API文档配置
 SPECTACULAR_SETTINGS = {
     'TITLE': '室内空气检测平台 API',
-    'DESCRIPTION': '室内空气检测数据处理和报告生成平台的REST API',
+    'DESCRIPTION': '室内空气检测数据处理和报告生成平台的REST API，包含AI配置管理系统',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': True,
+    },
+    'TAGS': [
+        {'name': 'AI配置管理', 'description': 'AI服务配置的增删改查和管理操作'},
+        {'name': 'AI监控', 'description': 'AI服务的监控、健康检查和统计'},
+        {'name': 'OCR处理', 'description': '图片OCR识别和数据提取'},
+        {'name': '用户管理', 'description': '用户认证和权限管理'},
+        {'name': '文件管理', 'description': '文件上传和管理'},
+        {'name': '报告管理', 'description': '检测报告的生成和管理'},
+    ],
 }
 
 # CORS配置

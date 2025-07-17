@@ -186,3 +186,11 @@ monthly/temp/
 
 # Redis数据库文件
 dump.rdb
+
+# AI配置文件
+config/ai_configs/ai_services.json
+config/ai_configs/backups/ai_services_20250717_110757.json
+config/ai_configs/backups/ai_services_20250717_110901.json
+config/ai_configs/backups/ai_services_20250717_110942.json
+config/ai_configs/backups/ai_services_20250717_111601.json
+config/ai_configs/

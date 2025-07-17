@@ -139,7 +139,21 @@ def root_view(request):
                 'admin': '/admin/',
                 'version': '/api/v1/version/',
                 'health': '/api/v1/health/',
-                'docs': '/api/v1/docs/'
+                'docs': {
+                    'swagger': '/api/docs/',
+                    'redoc': '/api/redoc/',
+                    'schema': '/api/schema/'
+                },
+                'ai_config': {
+                    'configs': '/api/v1/ai-config/configs/',
+                    'status': '/api/v1/ai-config/configs/status/',
+                    'health': '/api/v1/ai-config/configs/health/'
+                },
+                'ocr': '/api/v1/ocr/',
+                'files': '/api/v1/files/',
+                'reports': '/api/v1/reports/',
+                'batch': '/api/v1/batch/',
+                'monthly': '/api/v1/monthly/'
             },
             'version_source': '.version文件',
             'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')

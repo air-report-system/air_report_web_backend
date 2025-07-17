@@ -12,8 +12,175 @@ from django.utils import timezone
 from django.conf import settings
 from .models import OCRResult, ContactInfo
 from apps.files.models import UploadedFile
+from apps.ai_config.ocr_adapter import get_ai_config_ocr_service, get_ai_config_multi_ocr_service
 
 logger = logging.getLogger(__name__)
+
+
+def process_image_ocr_with_ai_config(file_id, user_id, use_multi_ocr=False, ocr_count=3):
+    """
+    使用AI配置系统处理图片OCR
+
+    Args:
+        file_id: 文件ID
+        user_id: 用户ID
+        use_multi_ocr: 是否使用多重OCR
+        ocr_count: OCR次数
+
+    Returns:
+        dict: 处理结果
+    """
+    try:
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        # 获取文件和用户
+        file_obj = UploadedFile.objects.get(id=file_id)
+        user = User.objects.get(id=user_id)
+
+        # 获取或创建OCR结果记录
+        ocr_result, created = OCRResult.objects.get_or_create(
+            file=file_obj,
+            defaults={
+                'status': 'processing',
+                'ocr_attempts': ocr_count if use_multi_ocr else 1,
+                'created_by': user,
+                'processing_started_at': timezone.now()
+            }
+        )
+
+        if not created:
+            # 更新现有记录
+            ocr_result.status = 'processing'
+            ocr_result.processing_started_at = timezone.now()
+            ocr_result.save()
+
+        logger.info(f"开始AI配置OCR处理: 文件ID={file_id}, 用户ID={user_id}, 多重OCR={use_multi_ocr}")
+
+        # 检查文件是否存在
+        if not file_obj.file or not os.path.exists(file_obj.file.path):
+            raise Exception(f"文件不存在: {file_obj.file.path if file_obj.file else 'None'}")
+
+        # 使用AI配置系统处理OCR
+        if use_multi_ocr:
+            multi_ocr_service = get_ai_config_multi_ocr_service()
+            result = multi_ocr_service.process_image_multiple(
+                file_obj.file.path,
+                ocr_count=ocr_count,
+                user=user
+            )
+        else:
+            ocr_service = get_ai_config_ocr_service()
+            result = ocr_service.process_image(file_obj.file.path, user=user)
+
+        # 更新OCR结果
+        ocr_result.status = 'completed'
+        ocr_result.processing_completed_at = timezone.now()
+        ocr_result.raw_response = result
+        ocr_result.confidence_score = result.get('confidence_score', 0.8)
+
+        # 提取基本信息
+        customer_info = result.get('customer_info', {})
+        detection_info = result.get('detection_info', {})
+
+        ocr_result.phone = customer_info.get('phone', '')
+        customer_name = customer_info.get('name', '')
+        address = customer_info.get('address', '')
+
+        # 处理日期
+        date_str = detection_info.get('detection_date', '')
+        if date_str:
+            try:
+                from datetime import datetime
+                ocr_result.date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                logger.warning(f"日期格式错误: {date_str}")
+                ocr_result.date = None
+
+        ocr_result.temperature = detection_info.get('temperature', '')
+        ocr_result.humidity = detection_info.get('humidity', '')
+
+        # 处理点位数据
+        points_data = result.get('points_data', {})
+        ocr_result.points_data = points_data
+
+        # 推断检测类型
+        if points_data:
+            # 简单的检测类型推断逻辑
+            point_count = len(points_data)
+            if point_count >= 3:
+                ocr_result.check_type = 'initial'  # 初检通常点位较多
+            else:
+                ocr_result.check_type = 'recheck'  # 复检通常点位较少
+        else:
+            ocr_result.check_type = 'initial'  # 默认初检
+
+        # 记录处理信息
+        if use_multi_ocr:
+            ocr_result.ocr_attempts = result.get('ocr_attempts', ocr_count)
+            ocr_result.has_conflicts = result.get('analysis', {}).get('has_differences', False)
+            ocr_result.conflict_details = result.get('analysis', {})
+        else:
+            ocr_result.ocr_attempts = 1
+
+        ocr_result.save()
+
+        # 处理联系人信息
+        if ocr_result.phone:
+            try:
+                contact_info, contact_created = ContactInfo.objects.get_or_create(
+                    ocr_result=ocr_result,
+                    defaults={
+                        'contact_name': customer_name,
+                        'full_phone': ocr_result.phone,
+                        'address': address,
+                        'match_type': 'manual',
+                        'match_source': 'manual',
+                        'created_by': user
+                    }
+                )
+
+                if not contact_created and customer_name:
+                    # 更新联系人姓名（如果新的更完整）
+                    if len(customer_name) > len(contact_info.contact_name or ''):
+                        contact_info.contact_name = customer_name
+                        contact_info.save()
+
+                logger.info(f"联系人信息处理完成: {contact_info.full_phone}")
+
+            except Exception as contact_error:
+                logger.error(f"处理联系人信息失败: {contact_error}")
+
+        logger.info(f"AI配置OCR处理完成: {ocr_result.pk}")
+
+        return {
+            'success': True,
+            'ocr_result_id': ocr_result.pk,
+            'status': ocr_result.status,
+            'phone': ocr_result.phone,
+            'points_count': len(points_data),
+            'provider': result.get('provider', 'unknown'),
+            'model': result.get('model', 'unknown')
+        }
+
+    except Exception as e:
+        logger.error(f"AI配置OCR处理失败: {e}", exc_info=True)
+
+        # 更新OCR结果状态
+        try:
+            if 'ocr_result' in locals():
+                ocr_result.status = 'failed'
+                ocr_result.error_message = str(e)
+                ocr_result.processing_completed_at = timezone.now()
+                ocr_result.save()
+        except Exception as save_error:
+            logger.error(f"保存错误状态失败: {save_error}")
+
+        return {
+            'success': False,
+            'error': str(e),
+            'ocr_result_id': locals().get('ocr_result', {}).get('pk') if 'ocr_result' in locals() else None
+        }
 
 
 @shared_task(bind=True, max_retries=3)
