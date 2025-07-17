@@ -272,39 +272,43 @@ class OrderInfoProcessor:
 
         return formatted_csv
     
-    def _format_multiple_with_openai(self, order_text: str) -> List[str]:
-        """使用OpenAI兼容接口格式化多个订单信息"""
+    def _format_multiple_with_openai(self, order_text: str) -> List[Dict[str, Any]]:
+        """使用OpenAI兼容接口格式化多个订单信息，返回JSON格式列表"""
         # 获取当前年份
         current_year = datetime.now().year
         
         prompt = f"""
-        请分析以下文本中的所有订单信息，并提取关键信息整理成CSV格式。
-        每个订单一行，格式为：客户姓名,客户电话,客户地址,商品类型(国标/母婴),成交金额,面积,履约时间,CMA点位数量,备注赠品
+        请分析以下文本中的所有订单信息，首先识别出有多少个订单，然后为每个订单提取关键信息整理成JSON格式。
+
+        请返回一个JSON数组，每个订单一个JSON对象，包含以下字段：
+        - 客户姓名: 客户的姓名
+        - 客户电话: 11位手机号码
+        - 客户地址: 详细地址信息
+        - 商品类型: "国标"或"母婴"
+        - 成交金额: 数字金额（不包含单位）
+        - 面积: 面积数字（不包含单位）
+        - 履约时间: YYYY-MM-DD格式的日期
+        - CMA点位数量: CMA检测的点位数量（数字）
+        - 备注赠品: JSON对象，格式为 {{"除醛宝": 15, "炭包": 3}}
 
         注意事项：
         1. 识别文本中的所有订单（通常以"业务类型"开头或包含客户信息的段落）
-        2. 每个订单输出一行CSV数据
-        3. 如果某个字段没有信息，请留空
-        4. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
-        5. 成交金额只保留数字，不要包含"元"等单位
-        6. 面积只保留数字，不要包含"平方米"等单位
-        7. 商品类型只能是"国标"或"母婴"
-        8. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
-        9. 备注赠品格式：{{品类:数量}}，多个赠品用分号分隔在同一个大括号内，如：{{除醛宝:2;炭包:1}}
-           - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
+        2. 如果某个字段没有信息，请设为空字符串或null
+        3. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
+        4. 成交金额只保留数字，不要包含"元"等单位
+        5. 面积只保留数字，不要包含"平方米"等单位
+        6. 商品类型只能是"国标"或"母婴"
+        7. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
+        8. 备注赠品格式：JSON对象，支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
            - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
-           - 重要：所有赠品必须在一个大括号内，用分号(;)分隔，不要用多个大括号
-           - 正确示例：{{除醛宝:15;炭包:3}}
-           - 错误示例：{{除醛宝:15}};{{炭包:3}}
-        10. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
-        11. 只输出CSV格式的数据行，不要包含任何其他说明文字
-        12. 不要包含CSV的标题行
-        13. 每个订单一行，多个订单用换行符分隔
+           - 示例：{{"除醛宝": 15, "炭包": 3}}
+        9. 只返回JSON数组，不要包含任何其他说明文字
+        10. 确保每个订单都是独立的JSON对象
 
         订单信息内容：
         {order_text}
 
-        请输出所有识别到的订单的CSV数据，每个订单一行。
+        请返回一个完整的JSON数组，包含所有识别到的订单：
         """
         
         # 构建请求
@@ -324,7 +328,7 @@ class OrderInfoProcessor:
                 }
             ],
             "temperature": 0.1,
-            "max_tokens": 2000
+            "max_tokens": 3000
         }
         
         # 发送请求
@@ -339,77 +343,159 @@ class OrderInfoProcessor:
         if response.status_code == 200:
             response_data = response.json()
             if 'choices' in response_data and response_data['choices']:
-                formatted_csv = response_data['choices'][0]['message']['content'].strip()
-                print(f"OpenAI API响应: {formatted_csv}")
+                formatted_json_text = response_data['choices'][0]['message']['content'].strip()
+                print(f"OpenAI API响应: {formatted_json_text}")
                 
-                # 分割为多行并处理每一行
-                lines = formatted_csv.split('\n')
-                processed_lines = []
-                for line in lines:
-                    line = line.strip()
-                    if line:  # 跳过空行
-                        # 后处理每一行
-                        processed_line = self._post_process_csv(line, order_text)
-                        processed_lines.append(processed_line)
-                
-                return processed_lines
+                try:
+                    # 解析JSON响应
+                    import json
+                    order_data_list = json.loads(formatted_json_text)
+                    
+                    # 确保返回的是列表
+                    if not isinstance(order_data_list, list):
+                        order_data_list = [order_data_list]
+                    
+                    # 后处理每个订单：确保备注赠品格式正确
+                    processed_orders = []
+                    for order_data in order_data_list:
+                        if not isinstance(order_data, dict):
+                            continue
+                            
+                        # 后处理：确保备注赠品格式正确
+                        if '备注赠品' in order_data and order_data['备注赠品']:
+                            if isinstance(order_data['备注赠品'], str):
+                                # 如果是字符串，尝试解析
+                                order_data['备注赠品'] = self._parse_gift_text_to_dict(order_data['备注赠品'])
+                            elif not isinstance(order_data['备注赠品'], dict):
+                                order_data['备注赠品'] = {}
+                        else:
+                            order_data['备注赠品'] = {}
+                        
+                        # 确保所有必要字段存在
+                        default_fields = {
+                            '客户姓名': '',
+                            '客户电话': '',
+                            '客户地址': '',
+                            '商品类型': '',
+                            '成交金额': '',
+                            '面积': '',
+                            '履约时间': '',
+                            'CMA点位数量': '',
+                            '备注赠品': {}
+                        }
+                        
+                        for field, default_value in default_fields.items():
+                            if field not in order_data:
+                                order_data[field] = default_value
+                        
+                        processed_orders.append(order_data)
+                    
+                    return processed_orders
+                    
+                except json.JSONDecodeError as e:
+                    print(f"JSON解析失败: {e}")
+                    # 如果JSON解析失败，使用本地处理
+                    return [self._local_format_order_message(order_text)]
             else:
                 raise Exception("OpenAI API响应格式异常")
         else:
             error_msg = f"OpenAI API请求失败: {response.status_code} - {response.text}"
             raise Exception(error_msg)
     
-    def _format_multiple_with_gemini(self, order_text: str) -> List[str]:
-        """使用Gemini API格式化多个订单信息"""
+    def _format_multiple_with_gemini(self, order_text: str) -> List[Dict[str, Any]]:
+        """使用Gemini API格式化多个订单信息，返回JSON格式列表"""
         # 获取当前年份
         current_year = datetime.now().year
 
         prompt = f"""
-        请分析以下文本中的所有订单信息，并提取关键信息整理成CSV格式。
-        每个订单一行，格式为：客户姓名,客户电话,客户地址,商品类型(国标/母婴),成交金额,面积,履约时间,CMA点位数量,备注赠品
+        请分析以下文本中的所有订单信息，首先识别出有多少个订单，然后为每个订单提取关键信息整理成JSON格式。
+
+        请返回一个JSON数组，每个订单一个JSON对象，包含以下字段：
+        - 客户姓名: 客户的姓名
+        - 客户电话: 11位手机号码
+        - 客户地址: 详细地址信息
+        - 商品类型: "国标"或"母婴"
+        - 成交金额: 数字金额（不包含单位）
+        - 面积: 面积数字（不包含单位）
+        - 履约时间: YYYY-MM-DD格式的日期
+        - CMA点位数量: CMA检测的点位数量（数字）
+        - 备注赠品: JSON对象，格式为 {{"除醛宝": 15, "炭包": 3}}
 
         注意事项：
         1. 识别文本中的所有订单（通常以"业务类型"开头或包含客户信息的段落）
-        2. 每个订单输出一行CSV数据
-        3. 如果某个字段没有信息，请留空
-        4. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
-        5. 成交金额只保留数字，不要包含"元"等单位
-        6. 面积只保留数字，不要包含"平方米"等单位
-        7. 商品类型只能是"国标"或"母婴"
-        8. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
-        9. 备注赠品格式：{{品类:数量}}，多个赠品用分号分隔在同一个大括号内，如：{{除醛宝:2;炭包:1}}
-           - 支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
+        2. 如果某个字段没有信息，请设为空字符串或null
+        3. 履约时间请使用YYYY-MM-DD格式，如果原文只有月日，请使用当前年份 {current_year} 作为年份
+        4. 成交金额只保留数字，不要包含"元"等单位
+        5. 面积只保留数字，不要包含"平方米"等单位
+        6. 商品类型只能是"国标"或"母婴"
+        7. CMA点位数量：如果是CMA检测订单，请提取具体的点位数量（数字），如果不是CMA订单或无法确定点位数量，请留空
+        8. 备注赠品格式：JSON对象，支持的品类：除醛宝（也叫小绿罐）、炭包、除醛机（也叫除醛仪）、除醛喷雾
            - 数量识别：支持阿拉伯数字（如16个）和中文数字（如一台=1台）
-           - 重要：所有赠品必须在一个大括号内，用分号(;)分隔，不要用多个大括号
-           - 正确示例：{{除醛宝:15;炭包:3}}
-           - 错误示例：{{除醛宝:15}};{{炭包:3}}
-        10. 如果地址、姓名等字段包含逗号，请用双引号包围该字段
-        11. 只输出CSV格式的数据行，不要包含任何其他说明文字
-        12. 不要包含CSV的标题行
-        13. 每个订单一行，多个订单用换行符分隔
+           - 示例：{{"除醛宝": 15, "炭包": 3}}
+        9. 只返回JSON数组，不要包含任何其他说明文字
+        10. 确保每个订单都是独立的JSON对象
 
         订单信息内容：
         {order_text}
 
-        请输出所有识别到的订单的CSV数据，每个订单一行。
+        请返回一个完整的JSON数组，包含所有识别到的订单：
         """
 
         print(f"正在调用Gemini API处理多个订单信息...")
         response = self.model.generate_content(prompt)
-        formatted_csv = response.text.strip()
-        print(f"Gemini API响应: {formatted_csv}")
+        formatted_json_text = response.text.strip()
+        print(f"Gemini API响应: {formatted_json_text}")
 
-        # 分割为多行并处理每一行
-        lines = formatted_csv.split('\n')
-        processed_lines = []
-        for line in lines:
-            line = line.strip()
-            if line:  # 跳过空行
-                # 后处理每一行
-                processed_line = self._post_process_csv(line, order_text)
-                processed_lines.append(processed_line)
-
-        return processed_lines
+        try:
+            # 解析JSON响应
+            import json
+            order_data_list = json.loads(formatted_json_text)
+            
+            # 确保返回的是列表
+            if not isinstance(order_data_list, list):
+                order_data_list = [order_data_list]
+            
+            # 后处理每个订单：确保备注赠品格式正确
+            processed_orders = []
+            for order_data in order_data_list:
+                if not isinstance(order_data, dict):
+                    continue
+                    
+                # 后处理：确保备注赠品格式正确
+                if '备注赠品' in order_data and order_data['备注赠品']:
+                    if isinstance(order_data['备注赠品'], str):
+                        # 如果是字符串，尝试解析
+                        order_data['备注赠品'] = self._parse_gift_text_to_dict(order_data['备注赠品'])
+                    elif not isinstance(order_data['备注赠品'], dict):
+                        order_data['备注赠品'] = {}
+                else:
+                    order_data['备注赠品'] = {}
+                
+                # 确保所有必要字段存在
+                default_fields = {
+                    '客户姓名': '',
+                    '客户电话': '',
+                    '客户地址': '',
+                    '商品类型': '',
+                    '成交金额': '',
+                    '面积': '',
+                    '履约时间': '',
+                    'CMA点位数量': '',
+                    '备注赠品': {}
+                }
+                
+                for field, default_value in default_fields.items():
+                    if field not in order_data:
+                        order_data[field] = default_value
+                
+                processed_orders.append(order_data)
+            
+            return processed_orders
+            
+        except json.JSONDecodeError as e:
+            print(f"JSON解析失败: {e}")
+            # 如果JSON解析失败，使用本地处理
+            return [self._local_format_order_message(order_text)]
     
     def _post_process_csv(self, csv_line: str, original_text: str) -> str:
         """

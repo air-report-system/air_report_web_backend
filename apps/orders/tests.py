@@ -160,7 +160,7 @@ class OrderRecordSerializerTestCase(TestCase):
 class OrderInfoProcessorTestCase(TestCase):
     """Test the OrderInfoProcessor with JSON format"""
 
-    @patch('apps.orders.services.ai_service_manager')
+    @patch('apps.ai_config.services.ai_service_manager')
     def test_extract_gift_notes_to_dict(self, mock_ai_service):
         """Test gift extraction returns dict format"""
         # Mock AI service manager
@@ -182,7 +182,7 @@ class OrderInfoProcessorTestCase(TestCase):
         self.assertEqual(result, expected)
         self.assertIsInstance(result, dict)
 
-    @patch('apps.orders.services.ai_service_manager')
+    @patch('apps.ai_config.services.ai_service_manager')
     def test_parse_gift_text_to_dict(self, mock_ai_service):
         """Test parsing old format gift text to dict"""
         mock_ai_service.get_current_service_config.return_value = {
@@ -203,7 +203,7 @@ class OrderInfoProcessorTestCase(TestCase):
         expected = {'除醛宝': 15, '炭包': 3}
         self.assertEqual(result, expected)
 
-    @patch('apps.orders.services.ai_service_manager')
+    @patch('apps.ai_config.services.ai_service_manager')
     def test_local_format_order_message_returns_dict(self, mock_ai_service):
         """Test local format returns dict with JSON gifts"""
         mock_ai_service.get_current_service_config.return_value = {
@@ -235,7 +235,7 @@ class OrderInfoProcessorTestCase(TestCase):
         self.assertEqual(result['备注赠品'], {'除醛宝': 15, '炭包': 3})
         self.assertIsInstance(result['备注赠品'], dict)
 
-    @patch('apps.orders.services.ai_service_manager')
+    @patch('apps.ai_config.services.ai_service_manager')
     def test_validate_order_data_with_json_gifts(self, mock_ai_service):
         """Test order data validation with JSON gifts"""
         mock_ai_service.get_current_service_config.return_value = {
@@ -258,7 +258,7 @@ class OrderInfoProcessorTestCase(TestCase):
         errors = processor._validate_order_data(valid_data)
         self.assertEqual(errors, [])
 
-    @patch('apps.orders.services.ai_service_manager')
+    @patch('apps.ai_config.services.ai_service_manager')
     def test_validate_order_data_with_invalid_gifts(self, mock_ai_service):
         """Test validation with invalid gift data"""
         mock_ai_service.get_current_service_config.return_value = {
@@ -353,9 +353,10 @@ class OrderAPITestCase(APITestCase):
         
         response = self.client.post('/api/v1/orders/submit/', order_data, format='json')
         
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Should return 400 due to serializer validation errors
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch('apps.orders.services.ai_service_manager')
+    @patch('apps.ai_config.services.ai_service_manager')
     def test_process_order_returns_json_format(self, mock_ai_service):
         """Test process order API returns JSON format"""
         mock_ai_service.get_current_service_config.return_value = {
@@ -386,7 +387,7 @@ class OrderAPITestCase(APITestCase):
 class MigrationTestCase(TestCase):
     """Test data migration from old format to new format"""
 
-    @patch('apps.orders.services.ai_service_manager')
+    @patch('apps.ai_config.services.ai_service_manager')
     def test_gift_text_to_json_conversion(self, mock_ai_service):
         """Test conversion from old text format to JSON"""
         mock_ai_service.get_current_service_config.return_value = {
@@ -411,6 +412,357 @@ class MigrationTestCase(TestCase):
         for old_format, expected in test_cases:
             result = processor._parse_gift_text_to_dict(old_format)
             self.assertEqual(result, expected, f"Failed for input: {old_format}")
+
+
+class MultipleOrderProcessingTestCase(TestCase):
+    """Test multiple order processing functionality"""
+
+    @patch('apps.ai_config.services.ai_service_manager')
+    def test_format_multiple_orders_json_response(self, mock_ai_service):
+        """Test multiple order processing returns JSON format"""
+        mock_ai_service.get_current_service_config.return_value = {
+            'name': 'test',
+            'api_format': 'openai',
+            'api_key': 'test-key',
+            'api_base_url': 'http://test.com',
+            'model_name': 'test-model'
+        }
+        
+        from apps.orders.services import OrderInfoProcessor
+        processor = OrderInfoProcessor()
+        
+        # Mock the AI response
+        with patch.object(processor, '_format_multiple_with_openai') as mock_format:
+            mock_format.return_value = [
+                {
+                    '客户姓名': '张三',
+                    '客户电话': '13812345678',
+                    '客户地址': '北京市朝阳区',
+                    '商品类型': '国标',
+                    '成交金额': '5000',
+                    '备注赠品': {'除醛宝': 15, '炭包': 3}
+                },
+                {
+                    '客户姓名': '李四',
+                    '客户电话': '13900139000',
+                    '客户地址': '上海市浦东新区',
+                    '商品类型': '母婴',
+                    '成交金额': '3000',
+                    '备注赠品': {'除醛宝': 10}
+                }
+            ]
+            
+            order_text = """
+            订单1：
+            客户：张三
+            电话：13812345678
+            地址：北京市朝阳区
+            金额：5000元
+            赠品：除醛宝15个，炭包3个
+            
+            订单2：
+            客户：李四
+            电话：13900139000
+            地址：上海市浦东新区
+            金额：3000元
+            赠品：除醛宝10个
+            """
+            
+            result = processor.format_multiple_orders(order_text)
+            
+            self.assertEqual(len(result), 2)
+            self.assertIsInstance(result, list)
+            
+            # 检查第一个订单
+            order1 = result[0]
+            self.assertEqual(order1['客户姓名'], '张三')
+            self.assertEqual(order1['备注赠品'], {'除醛宝': 15, '炭包': 3})
+            self.assertIsInstance(order1['备注赠品'], dict)
+            
+            # 检查第二个订单
+            order2 = result[1]
+            self.assertEqual(order2['客户姓名'], '李四')
+            self.assertEqual(order2['备注赠品'], {'除醛宝': 10})
+            self.assertIsInstance(order2['备注赠品'], dict)
+
+    @patch('apps.ai_config.services.ai_service_manager')
+    def test_parse_multiple_orders_to_order_data(self, mock_ai_service):
+        """Test parsing multiple orders to structured data"""
+        mock_ai_service.get_current_service_config.return_value = {
+            'name': 'test',
+            'api_format': 'openai',
+            'api_key': 'test-key',
+            'api_base_url': 'http://test.com',
+            'model_name': 'test-model'
+        }
+        
+        from apps.orders.services import OrderInfoProcessor
+        processor = OrderInfoProcessor()
+        
+        order_data_list = [
+            {
+                '客户姓名': '王五',
+                '客户电话': '13700137000',
+                '客户地址': '广州市天河区',
+                '商品类型': '国标',
+                '成交金额': '4000',
+                '备注赠品': {'除醛宝': 8, '炭包': 2}
+            },
+            {
+                '客户姓名': '赵六',
+                '客户电话': '13600136000',
+                '客户地址': '深圳市南山区',
+                '商品类型': '母婴',
+                '成交金额': '2500',
+                '备注赠品': {'除醛机': 1}
+            }
+        ]
+        
+        result = processor.parse_multiple_orders_to_order_data(order_data_list)
+        
+        self.assertEqual(result['total_orders'], 2)
+        self.assertEqual(len(result['order_data_list']), 2)
+        
+        # 检查第一个订单
+        order1 = result['order_data_list'][0]
+        self.assertEqual(order1['order_data']['客户姓名'], '王五')
+        self.assertEqual(order1['order_data']['_order_index'], 1)
+        self.assertIsInstance(order1['validation_errors'], list)
+        
+        # 检查第二个订单
+        order2 = result['order_data_list'][1]
+        self.assertEqual(order2['order_data']['客户姓名'], '赵六')
+        self.assertEqual(order2['order_data']['_order_index'], 2)
+        self.assertIsInstance(order2['validation_errors'], list)
+
+    @patch('apps.ai_config.services.ai_service_manager')
+    def test_multiple_orders_validation_errors(self, mock_ai_service):
+        """Test validation errors in multiple orders"""
+        mock_ai_service.get_current_service_config.return_value = {
+            'name': 'test',
+            'api_format': 'openai',
+            'api_key': 'test-key',
+            'api_base_url': 'http://test.com',
+            'model_name': 'test-model'
+        }
+        
+        from apps.orders.services import OrderInfoProcessor
+        processor = OrderInfoProcessor()
+        
+        order_data_list = [
+            {
+                '客户姓名': '有效订单',
+                '客户电话': '13812345678',
+                '商品类型': '国标',
+                '备注赠品': {'除醛宝': 5}
+            },
+            {
+                '客户姓名': '无效订单',
+                '客户电话': '123456',  # 无效电话
+                '商品类型': '无效类型',  # 无效商品类型
+                '备注赠品': {'无效赠品': 5}  # 无效赠品
+            }
+        ]
+        
+        result = processor.parse_multiple_orders_to_order_data(order_data_list)
+        
+        # 第一个订单应该没有验证错误
+        self.assertEqual(len(result['order_data_list'][0]['validation_errors']), 0)
+        
+        # 第二个订单应该有多个验证错误
+        order2_errors = result['order_data_list'][1]['validation_errors']
+        self.assertGreater(len(order2_errors), 0)
+        
+        # 检查汇总的验证错误
+        self.assertGreater(len(result['validation_errors']), 0)
+        # 验证错误应该包含订单索引
+        self.assertTrue(any('订单2:' in error for error in result['validation_errors']))
+
+    @patch('apps.ai_config.services.ai_service_manager')
+    def test_local_fallback_for_multiple_orders(self, mock_ai_service):
+        """Test local fallback when AI fails for multiple orders"""
+        mock_ai_service.get_current_service_config.return_value = {
+            'name': 'test',
+            'api_format': 'openai',
+            'api_key': 'test-key',
+            'api_base_url': 'http://test.com',
+            'model_name': 'test-model'
+        }
+        
+        from apps.orders.services import OrderInfoProcessor
+        processor = OrderInfoProcessor()
+        
+        # Mock AI to raise an exception
+        with patch.object(processor, '_format_multiple_with_openai') as mock_format:
+            mock_format.side_effect = Exception("AI API failed")
+            
+            order_text = """
+            客户：本地测试
+            电话：13400134000
+            地址：测试城市
+            赠品：除醛宝10个
+            """
+            
+            result = processor.format_multiple_orders(order_text)
+            
+            # Should return one order from local processing
+            self.assertEqual(len(result), 1)
+            self.assertIsInstance(result[0], dict)
+            self.assertIn('备注赠品', result[0])
+            self.assertIsInstance(result[0]['备注赠品'], dict)
+
+
+class MultipleOrderAPITestCase(APITestCase):
+    """Test multiple order API endpoints"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass123'
+        )
+        self.client.force_authenticate(user=self.user)
+
+    @patch('apps.ai_config.services.ai_service_manager')
+    def test_process_multiple_orders_api(self, mock_ai_service):
+        """Test processing multiple orders API endpoint"""
+        mock_ai_service.get_current_service_config.return_value = {
+            'name': 'test',
+            'api_format': 'openai',
+            'api_key': 'test-key',
+            'api_base_url': 'http://test.com',
+            'model_name': 'test-model'
+        }
+        
+        # Mock the processor
+        with patch('apps.orders.views.OrderInfoProcessor') as mock_processor_class:
+            mock_processor = mock_processor_class.return_value
+            
+            # Mock multiple orders response
+            mock_processor.format_multiple_orders.return_value = [
+                {
+                    '客户姓名': '张三',
+                    '客户电话': '13812345678',
+                    '商品类型': '国标',
+                    '备注赠品': {'除醛宝': 15}
+                },
+                {
+                    '客户姓名': '李四',
+                    '客户电话': '13900139000',
+                    '商品类型': '母婴',
+                    '备注赠品': {'炭包': 5}
+                }
+            ]
+            
+            mock_processor.parse_multiple_orders_to_order_data.return_value = {
+                'order_data_list': [
+                    {
+                        'order_data': {
+                            '客户姓名': '张三',
+                            '客户电话': '13812345678',
+                            '商品类型': '国标',
+                            '备注赠品': {'除醛宝': 15}
+                        },
+                        'validation_errors': []
+                    },
+                    {
+                        'order_data': {
+                            '客户姓名': '李四',
+                            '客户电话': '13900139000',
+                            '商品类型': '母婴',
+                            '备注赠品': {'炭包': 5}
+                        },
+                        'validation_errors': []
+                    }
+                ],
+                'validation_errors': [],
+                'total_orders': 2
+            }
+            
+            mock_processor.check_for_duplicates.return_value = {
+                'is_duplicate': False,
+                'match_details': [],
+                'duplicate_count': 0
+            }
+            
+            request_data = {
+                'order_text': """
+                订单1：张三，13812345678，除醛宝15个
+                订单2：李四，13900139000，炭包5个
+                """
+            }
+            
+            response = self.client.post('/api/v1/orders/process-multiple/', request_data, format='json')
+            
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.data['total_orders'], 2)
+            self.assertEqual(len(response.data['order_data_list']), 2)
+
+    def test_submit_multiple_orders_api(self):
+        """Test submitting multiple orders API endpoint"""
+        order_data_list = [
+            {
+                '客户姓名': '测试用户1',
+                '客户电话': '13812345678',
+                '客户地址': '北京市朝阳区',
+                '商品类型': '国标',
+                '成交金额': '5000',
+                '备注赠品': {'除醛宝': 15}
+            },
+            {
+                '客户姓名': '测试用户2',
+                '客户电话': '13900139000',
+                '客户地址': '上海市浦东新区',
+                '商品类型': '母婴',
+                '成交金额': '3000',
+                '备注赠品': {'炭包': 5}
+            }
+        ]
+        
+        request_data = {
+            'order_data_list': order_data_list
+        }
+        
+        response = self.client.post('/api/v1/orders/submit-multiple/', request_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['success'])
+        self.assertEqual(response.data['success_count'], 2)
+        self.assertEqual(response.data['failed_count'], 0)
+        
+        # Check that records were created in database
+        self.assertEqual(CSVRecord.objects.filter(客户姓名='测试用户1').count(), 1)
+        self.assertEqual(CSVRecord.objects.filter(客户姓名='测试用户2').count(), 1)
+        
+        # Verify gift data is stored as JSON
+        record1 = CSVRecord.objects.get(客户姓名='测试用户1')
+        self.assertEqual(record1.备注赠品, {'除醛宝': 15})
+        self.assertIsInstance(record1.备注赠品, dict)
+
+    def test_submit_multiple_orders_with_invalid_data(self):
+        """Test submitting multiple orders with invalid data"""
+        order_data_list = [
+            {
+                '客户姓名': '有效用户',
+                '客户电话': '13812345678',
+                '商品类型': '国标',
+                '备注赠品': {'除醛宝': 15}
+            },
+            'invalid_order_data'  # This should cause failure
+        ]
+        
+        request_data = {
+            'order_data_list': order_data_list
+        }
+        
+        response = self.client.post('/api/v1/orders/submit-multiple/', request_data, format='json')
+        
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn('error', response.data)
+        self.assertEqual(response.data['failed_count'], 1)
+        
+        # Due to transaction rollback, no records should be created
+        self.assertEqual(CSVRecord.objects.filter(客户姓名='有效用户').count(), 0)
 
 
 if __name__ == '__main__':
