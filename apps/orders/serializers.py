@@ -8,24 +8,28 @@ from apps.ocr.models import CSVRecord
 class OrderInfoInputSerializer(serializers.Serializer):
     """订单信息输入序列化器"""
     order_text = serializers.CharField(
-        help_text="原始订单信息文本",
+        help_text="原始订单信息文本，例如：业务类型：国标检测\\n客户：张三\\n电话：13812345678\\n地址：北京市朝阳区\\n金额：5000元\\n面积：100平方米\\n履约时间：2024-01-15\\nCMA点位：5个\\n赠品：除醛宝15个，炭包3个",
         style={'base_template': 'textarea.html', 'rows': 10}
     )
 
 
 class OrderInfoOutputSerializer(serializers.Serializer):
     """订单信息输出序列化器"""
-    formatted_csv = serializers.CharField(help_text="格式化后的CSV数据")
-    order_data = serializers.DictField(help_text="解析后的订单数据")
+    order_data = serializers.DictField(help_text="解析后的订单数据（JSON格式）")
     validation_errors = serializers.ListField(
         child=serializers.CharField(),
         help_text="验证错误列表"
     )
-    csv_content = serializers.CharField(help_text="CSV内容")
+    duplicate_check = serializers.DictField(help_text="重复检查结果")
 
 
 class OrderRecordSerializer(serializers.ModelSerializer):
-    """订单记录序列化器 - 复用CSVRecord模型"""
+    """订单记录序列化器 - 使用JSON格式"""
+    备注赠品 = serializers.JSONField(
+        required=False, 
+        allow_null=True,
+        help_text='赠品信息，JSON格式: {"除醛宝": 15, "炭包": 3}'
+    )
     
     class Meta:
         model = CSVRecord
@@ -35,6 +39,29 @@ class OrderRecordSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def validate_备注赠品(self, value):
+        """验证备注赠品格式"""
+        if not value:
+            return {}
+        
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("备注赠品必须是JSON对象格式")
+        
+        # 验证支持的赠品类型
+        valid_gift_types = ['除醛宝', '炭包', '除醛机', '除醛喷雾']
+        
+        for gift_type, quantity in value.items():
+            if not isinstance(gift_type, str):
+                raise serializers.ValidationError("赠品类型必须是字符串")
+            
+            if gift_type not in valid_gift_types:
+                raise serializers.ValidationError(f"不支持的赠品类型: {gift_type}，支持的类型: {', '.join(valid_gift_types)}")
+            
+            if not isinstance(quantity, int) or quantity < 0:
+                raise serializers.ValidationError(f"赠品数量必须是非负整数: {gift_type}")
+        
+        return value
     
     def validate_客户电话(self, value):
         """验证客户电话格式"""

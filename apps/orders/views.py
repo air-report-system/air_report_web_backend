@@ -36,19 +36,17 @@ class ProcessOrderInfoView(APIView):
         try:
             # 使用订单信息处理器格式化文本
             processor = OrderInfoProcessor()
-            formatted_csv = processor.format_order_message(order_text)
+            order_data = processor.format_order_message(order_text)
             
-            # 解析CSV为订单数据
-            parse_result = processor.parse_csv_to_order_data(formatted_csv)
+            # 解析订单数据
+            parse_result = processor.parse_order_data(order_data)
 
             # 检查重复记录
             duplicate_result = processor.check_for_duplicates(parse_result["order_data"])
 
             response_data = {
-                "formatted_csv": formatted_csv,
                 "order_data": parse_result["order_data"],
                 "validation_errors": parse_result["validation_errors"],
-                "csv_content": parse_result.get("csv_content", formatted_csv),
                 "duplicate_check": duplicate_result
             }
             
@@ -80,14 +78,14 @@ class ProcessMultipleOrdersView(APIView):
             
             # 增加超时处理和重试机制
             try:
-                formatted_csv_lines = processor.format_multiple_orders(order_text)
+                order_data_list = processor.format_multiple_orders(order_text)
             except TimeoutError as timeout_error:
                 logger.warning(f"AI处理超时，尝试本地处理: {timeout_error}")
                 # 超时情况下，尝试本地处理
-                formatted_csv_lines = [processor._local_format_order_message(order_text)]
+                order_data_list = [processor._local_format_order_message(order_text)]
             
-            # 解析多个CSV为订单数据
-            parse_result = processor.parse_multiple_csv_to_order_data(formatted_csv_lines)
+            # 解析多个订单数据
+            parse_result = processor.parse_multiple_orders_to_order_data(order_data_list)
 
             # 为每个订单检查重复记录
             for order_item in parse_result["order_data_list"]:
@@ -99,7 +97,6 @@ class ProcessMultipleOrdersView(APIView):
                     order_item["duplicate_check"] = {"is_duplicate": False, "match_details": [], "duplicate_count": 0}
 
             response_data = {
-                "formatted_csv_lines": formatted_csv_lines,
                 "order_data_list": parse_result["order_data_list"],
                 "validation_errors": parse_result["validation_errors"],
                 "total_orders": parse_result["total_orders"]
@@ -185,7 +182,7 @@ class SubmitOrderView(APIView):
             )
     
     def _convert_order_data_to_csv_record(self, order_data):
-        """将订单数据转换为CSVRecord模型格式"""
+        """将订单数据转换为OrderRecord模型格式"""
         csv_data = {}
         
         # 直接映射字段
@@ -195,29 +192,49 @@ class SubmitOrderView(APIView):
             '客户地址': '客户地址',
             '商品类型': '商品类型',
             '面积': '面积',
-            'CMA点位数量': 'CMA点位数量',
-            '备注赠品': '备注赠品'
+            'CMA点位数量': 'CMA点位数量'
         }
         
         for order_field, csv_field in field_mapping.items():
-            value = order_data.get(order_field, '').strip()
+            value = order_data.get(order_field, '')
+            if isinstance(value, str):
+                value = value.strip()
             csv_data[csv_field] = value if value else ''
         
+        # 处理备注赠品 - 确保为字典格式
+        gifts = order_data.get('备注赠品', {})
+        if isinstance(gifts, dict):
+            csv_data['备注赠品'] = gifts
+        elif isinstance(gifts, str) and gifts:
+            # 如果是字符串格式，尝试解析
+            try:
+                import json
+                csv_data['备注赠品'] = json.loads(gifts)
+            except json.JSONDecodeError:
+                # 如果解析失败，设为空字典
+                csv_data['备注赠品'] = {}
+        else:
+            csv_data['备注赠品'] = {}
+        
         # 处理成交金额 - 转换为Decimal
-        amount_str = order_data.get('成交金额', '').strip()
+        amount_str = order_data.get('成交金额', '')
+        if isinstance(amount_str, str):
+            amount_str = amount_str.strip()
         if amount_str:
             try:
-                csv_data['成交金额'] = Decimal(amount_str)
+                csv_data['成交金额'] = Decimal(str(amount_str))
             except (InvalidOperation, ValueError):
                 csv_data['成交金额'] = None
         else:
             csv_data['成交金额'] = None
         
         # 处理履约时间 - 转换为日期
-        date_str = order_data.get('履约时间', '').strip()
+        date_str = order_data.get('履约时间', '')
+        if isinstance(date_str, str):
+            date_str = date_str.strip()
         if date_str:
             try:
-                csv_data['履约时间'] = datetime.strptime(date_str, '%Y-%m-%d').date()
+                csv_data['履约时间'] = datetime.strptime(str(date_str), '%Y-%m-%d').date()
             except ValueError:
                 csv_data['履约时间'] = None
         else:
@@ -301,7 +318,7 @@ class SubmitMultipleOrdersView(APIView):
             )
     
     def _convert_order_data_to_csv_record(self, order_data):
-        """将订单数据转换为CSVRecord模型格式"""
+        """将订单数据转换为OrderRecord模型格式"""
         csv_data = {}
         
         # 直接映射字段
@@ -311,29 +328,49 @@ class SubmitMultipleOrdersView(APIView):
             '客户地址': '客户地址',
             '商品类型': '商品类型',
             '面积': '面积',
-            'CMA点位数量': 'CMA点位数量',
-            '备注赠品': '备注赠品'
+            'CMA点位数量': 'CMA点位数量'
         }
         
         for order_field, csv_field in field_mapping.items():
-            value = order_data.get(order_field, '').strip()
+            value = order_data.get(order_field, '')
+            if isinstance(value, str):
+                value = value.strip()
             csv_data[csv_field] = value if value else ''
         
+        # 处理备注赠品 - 确保为字典格式
+        gifts = order_data.get('备注赠品', {})
+        if isinstance(gifts, dict):
+            csv_data['备注赠品'] = gifts
+        elif isinstance(gifts, str) and gifts:
+            # 如果是字符串格式，尝试解析
+            try:
+                import json
+                csv_data['备注赠品'] = json.loads(gifts)
+            except json.JSONDecodeError:
+                # 如果解析失败，设为空字典
+                csv_data['备注赠品'] = {}
+        else:
+            csv_data['备注赠品'] = {}
+        
         # 处理成交金额 - 转换为Decimal
-        amount_str = order_data.get('成交金额', '').strip()
+        amount_str = order_data.get('成交金额', '')
+        if isinstance(amount_str, str):
+            amount_str = amount_str.strip()
         if amount_str:
             try:
-                csv_data['成交金额'] = Decimal(amount_str)
+                csv_data['成交金额'] = Decimal(str(amount_str))
             except (InvalidOperation, ValueError):
                 csv_data['成交金额'] = None
         else:
             csv_data['成交金额'] = None
         
         # 处理履约时间 - 转换为日期
-        date_str = order_data.get('履约时间', '').strip()
+        date_str = order_data.get('履约时间', '')
+        if isinstance(date_str, str):
+            date_str = date_str.strip()
         if date_str:
             try:
-                csv_data['履约时间'] = datetime.strptime(date_str, '%Y-%m-%d').date()
+                csv_data['履约时间'] = datetime.strptime(str(date_str), '%Y-%m-%d').date()
             except ValueError:
                 csv_data['履约时间'] = None
         else:
