@@ -73,8 +73,8 @@ class OCRResult(BaseModel):
 
 
 class CSVRecord(BaseModel):
-    """CSV记录表 - 与原CSV字段完全一致"""
-    # 基本信息 - 与CSV字段名完全一致
+    """订单记录表 - 重构为JSON格式"""
+    # 基本信息
     客户姓名 = models.CharField(max_length=100, verbose_name='客户姓名')
     客户电话 = models.CharField(max_length=20, blank=True, verbose_name='客户电话')
     客户地址 = models.TextField(verbose_name='客户地址')
@@ -88,14 +88,15 @@ class CSVRecord(BaseModel):
     面积 = models.CharField(max_length=20, blank=True, verbose_name='面积')
     履约时间 = models.DateField(null=True, blank=True, verbose_name='履约时间')
     CMA点位数量 = models.CharField(max_length=10, blank=True, verbose_name='CMA点位数量')
-    备注赠品 = models.TextField(blank=True, verbose_name='备注赠品')
+    备注赠品 = models.JSONField(default=dict, blank=True, verbose_name='备注赠品', 
+                                help_text='赠品信息，格式: {"除醛宝": 15, "炭包": 3}')
 
     # 系统字段
     is_active = models.BooleanField(default=True, verbose_name='是否有效')
 
     class Meta:
-        verbose_name = 'CSV记录'
-        verbose_name_plural = 'CSV记录'
+        verbose_name = '订单记录'
+        verbose_name_plural = '订单记录'
         indexes = [
             models.Index(fields=['客户电话']),
             models.Index(fields=['客户姓名']),
