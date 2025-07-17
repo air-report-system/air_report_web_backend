@@ -16,4 +16,6 @@ urlpatterns = [
     path('logout', views.LogoutView.as_view(), name='logout-no-slash'),  # 支持没有斜杠的URL
     path('profile/', views.UserProfileView.as_view(), name='profile'),
     path('profile', views.UserProfileView.as_view(), name='profile-no-slash'),  # 支持没有斜杠的URL
+    path('background-image/', views.BackgroundImageView.as_view(), name='background-image'),
+    path('background-image', views.BackgroundImageView.as_view(), name='background-image-no-slash'),  # 支持没有斜杠的URL
 ]

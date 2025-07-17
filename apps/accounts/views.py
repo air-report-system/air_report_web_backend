@@ -60,13 +60,13 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # 删除用户的Token
         try:
+            # 删除用户的token
             token = Token.objects.get(user=request.user)
             token.delete()
+            return Response({'message': '登出成功'})
         except Token.DoesNotExist:
-            pass
-        return Response({'message': '登出成功'})
+            return Response({'message': '登出成功'})
 
 
 class UserProfileView(APIView):
@@ -95,3 +95,105 @@ class UserProfileView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class BackgroundImageView(APIView):
+    """用户背景图管理视图"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """获取用户背景图设置"""
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+            return Response({
+                'background_image': profile.background_image,
+                'background_opacity': profile.background_opacity
+            })
+        except UserProfile.DoesNotExist:
+            return Response({
+                'background_image': None,
+                'background_opacity': 0.1
+            })
+
+    def post(self, request):
+        """上传背景图"""
+        try:
+            profile, created = UserProfile.objects.get_or_create(user=request.user)
+        except Exception:
+            return Response(
+                {'error': '获取用户配置失败'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        background_image = request.data.get('background_image')
+        background_opacity = request.data.get('background_opacity', profile.background_opacity)
+
+        # 验证数据
+        serializer = UserProfileSerializer(profile, data={
+            'background_image': background_image,
+            'background_opacity': background_opacity
+        }, partial=True)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'message': '背景图上传成功',
+                'background_image': profile.background_image,
+                'background_opacity': profile.background_opacity
+            })
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request):
+        """更新背景图透明度"""
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'error': '用户配置不存在'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        background_opacity = request.data.get('background_opacity')
+        if background_opacity is None:
+            return Response(
+                {'error': '缺少透明度参数'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 验证透明度值
+        try:
+            opacity = float(background_opacity)
+            if not 0 <= opacity <= 1:
+                return Response(
+                    {'error': '透明度必须在0-1之间'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, TypeError):
+            return Response(
+                {'error': '透明度必须是有效的数字'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        profile.background_opacity = opacity
+        profile.save()
+
+        return Response({
+            'message': '透明度更新成功',
+            'background_opacity': profile.background_opacity
+        })
+
+    def delete(self, request):
+        """删除背景图"""
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+            profile.background_image = None
+            profile.background_opacity = 0.1  # 重置为默认值
+            profile.save()
+            
+            return Response({'message': '背景图删除成功'})
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'error': '用户配置不存在'},
+                status=status.HTTP_404_NOT_FOUND
+            )

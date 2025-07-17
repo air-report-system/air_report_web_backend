@@ -38,6 +38,11 @@ class UserProfile(models.Model):
     default_ocr_settings = models.JSONField(default=dict, verbose_name='默认OCR设置')
     ui_preferences = models.JSONField(default=dict, verbose_name='界面偏好')
     notification_settings = models.JSONField(default=dict, verbose_name='通知设置')
+    
+    # 背景图相关字段
+    background_image = models.TextField(blank=True, null=True, verbose_name='背景图片Base64数据')
+    background_opacity = models.FloatField(default=0.1, verbose_name='背景图透明度')
+    
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
