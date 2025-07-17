@@ -199,6 +199,8 @@ class SubmitOrderView(APIView):
             value = order_data.get(order_field, '')
             if isinstance(value, str):
                 value = value.strip()
+            elif value is None:
+                value = ''
             csv_data[csv_field] = value if value else ''
         
         # 处理备注赠品 - 确保为字典格式
@@ -220,6 +222,8 @@ class SubmitOrderView(APIView):
         amount_str = order_data.get('成交金额', '')
         if isinstance(amount_str, str):
             amount_str = amount_str.strip()
+        elif amount_str is None:
+            amount_str = ''
         if amount_str:
             try:
                 csv_data['成交金额'] = Decimal(str(amount_str))
@@ -227,11 +231,13 @@ class SubmitOrderView(APIView):
                 csv_data['成交金额'] = None
         else:
             csv_data['成交金额'] = None
-        
+
         # 处理履约时间 - 转换为日期
         date_str = order_data.get('履约时间', '')
         if isinstance(date_str, str):
             date_str = date_str.strip()
+        elif date_str is None:
+            date_str = ''
         if date_str:
             try:
                 csv_data['履约时间'] = datetime.strptime(str(date_str), '%Y-%m-%d').date()
@@ -335,6 +341,8 @@ class SubmitMultipleOrdersView(APIView):
             value = order_data.get(order_field, '')
             if isinstance(value, str):
                 value = value.strip()
+            elif value is None:
+                value = ''
             csv_data[csv_field] = value if value else ''
         
         # 处理备注赠品 - 确保为字典格式
@@ -356,6 +364,8 @@ class SubmitMultipleOrdersView(APIView):
         amount_str = order_data.get('成交金额', '')
         if isinstance(amount_str, str):
             amount_str = amount_str.strip()
+        elif amount_str is None:
+            amount_str = ''
         if amount_str:
             try:
                 csv_data['成交金额'] = Decimal(str(amount_str))
@@ -363,11 +373,13 @@ class SubmitMultipleOrdersView(APIView):
                 csv_data['成交金额'] = None
         else:
             csv_data['成交金额'] = None
-        
+
         # 处理履约时间 - 转换为日期
         date_str = order_data.get('履约时间', '')
         if isinstance(date_str, str):
             date_str = date_str.strip()
+        elif date_str is None:
+            date_str = ''
         if date_str:
             try:
                 csv_data['履约时间'] = datetime.strptime(str(date_str), '%Y-%m-%d').date()

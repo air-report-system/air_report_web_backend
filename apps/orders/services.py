@@ -78,7 +78,24 @@ class OrderInfoProcessor:
                 raise
 
     # 代理设置方法已移除
-    
+
+    def _clean_json_response(self, response_text: str) -> str:
+        """清理AI响应中的markdown代码块标记"""
+        # 移除markdown代码块标记
+        cleaned = response_text.strip()
+
+        # 移除开头的```json或```
+        if cleaned.startswith('```json'):
+            cleaned = cleaned[7:]
+        elif cleaned.startswith('```'):
+            cleaned = cleaned[3:]
+
+        # 移除结尾的```
+        if cleaned.endswith('```'):
+            cleaned = cleaned[:-3]
+
+        return cleaned.strip()
+
     @timeout_handler(getattr(settings, 'API_TIMEOUT_SECONDS', 120))
     def format_order_message(self, order_text: str) -> Dict[str, Any]:
         """
@@ -185,11 +202,15 @@ class OrderInfoProcessor:
             if 'choices' in response_data and response_data['choices']:
                 formatted_json_text = response_data['choices'][0]['message']['content'].strip()
                 print(f"OpenAI API响应: {formatted_json_text}")
-                
+
+                # 清理markdown代码块标记
+                cleaned_json_text = self._clean_json_response(formatted_json_text)
+                print(f"清理后的JSON: {cleaned_json_text}")
+
                 try:
                     # 解析JSON响应
                     import json
-                    order_data = json.loads(formatted_json_text)
+                    order_data = json.loads(cleaned_json_text)
                     
                     # 后处理：确保备注赠品格式正确
                     if '备注赠品' in order_data and order_data['备注赠品']:
@@ -201,7 +222,7 @@ class OrderInfoProcessor:
                     else:
                         order_data['备注赠品'] = {}
                     
-                    # 确保所有必要字段存在
+                    # 确保所有必要字段存在并处理None值
                     default_fields = {
                         '客户姓名': '',
                         '客户电话': '',
@@ -213,9 +234,9 @@ class OrderInfoProcessor:
                         'CMA点位数量': '',
                         '备注赠品': {}
                     }
-                    
+
                     for field, default_value in default_fields.items():
-                        if field not in order_data:
+                        if field not in order_data or order_data[field] is None:
                             order_data[field] = default_value
                     
                     return order_data
@@ -345,11 +366,15 @@ class OrderInfoProcessor:
             if 'choices' in response_data and response_data['choices']:
                 formatted_json_text = response_data['choices'][0]['message']['content'].strip()
                 print(f"OpenAI API响应: {formatted_json_text}")
-                
+
+                # 清理markdown代码块标记
+                cleaned_json_text = self._clean_json_response(formatted_json_text)
+                print(f"清理后的JSON: {cleaned_json_text}")
+
                 try:
                     # 解析JSON响应
                     import json
-                    order_data_list = json.loads(formatted_json_text)
+                    order_data_list = json.loads(cleaned_json_text)
                     
                     # 确保返回的是列表
                     if not isinstance(order_data_list, list):
@@ -371,7 +396,7 @@ class OrderInfoProcessor:
                         else:
                             order_data['备注赠品'] = {}
                         
-                        # 确保所有必要字段存在
+                        # 确保所有必要字段存在并处理None值
                         default_fields = {
                             '客户姓名': '',
                             '客户电话': '',
@@ -383,9 +408,9 @@ class OrderInfoProcessor:
                             'CMA点位数量': '',
                             '备注赠品': {}
                         }
-                        
+
                         for field, default_value in default_fields.items():
-                            if field not in order_data:
+                            if field not in order_data or order_data[field] is None:
                                 order_data[field] = default_value
                         
                         processed_orders.append(order_data)
@@ -446,10 +471,14 @@ class OrderInfoProcessor:
         formatted_json_text = response.text.strip()
         print(f"Gemini API响应: {formatted_json_text}")
 
+        # 清理markdown代码块标记
+        cleaned_json_text = self._clean_json_response(formatted_json_text)
+        print(f"清理后的JSON: {cleaned_json_text}")
+
         try:
             # 解析JSON响应
             import json
-            order_data_list = json.loads(formatted_json_text)
+            order_data_list = json.loads(cleaned_json_text)
             
             # 确保返回的是列表
             if not isinstance(order_data_list, list):
@@ -471,7 +500,7 @@ class OrderInfoProcessor:
                 else:
                     order_data['备注赠品'] = {}
                 
-                # 确保所有必要字段存在
+                # 确保所有必要字段存在并处理None值
                 default_fields = {
                     '客户姓名': '',
                     '客户电话': '',
@@ -483,9 +512,9 @@ class OrderInfoProcessor:
                     'CMA点位数量': '',
                     '备注赠品': {}
                 }
-                
+
                 for field, default_value in default_fields.items():
-                    if field not in order_data:
+                    if field not in order_data or order_data[field] is None:
                         order_data[field] = default_value
                 
                 processed_orders.append(order_data)
@@ -709,9 +738,9 @@ class OrderInfoProcessor:
             '备注赠品': {}
         }
         
-        # 补充缺失字段
+        # 补充缺失字段并处理None值
         for field, default_value in default_fields.items():
-            if field not in order_data:
+            if field not in order_data or order_data[field] is None:
                 order_data[field] = default_value
         
         # 验证数据
@@ -729,29 +758,50 @@ class OrderInfoProcessor:
         # 必填字段检查（客户姓名不再是必填项）
         required_fields = []
         for field in required_fields:
-            if not order_data.get(field, '').strip():
+            field_value = order_data.get(field, '')
+            if field_value is None:
+                field_value = ''
+            elif isinstance(field_value, str):
+                field_value = field_value.strip()
+            if not field_value:
                 errors.append(f"{field}不能为空")
-        
+
         # 电话号码格式检查
-        phone = order_data.get("客户电话", '').strip()
+        phone = order_data.get("客户电话", '')
+        if phone is None:
+            phone = ''
+        elif isinstance(phone, str):
+            phone = phone.strip()
         if phone and not re.match(r'^1[3-9]\d{9}$', phone):
             errors.append("客户电话格式不正确")
-        
+
         # 商品类型检查
-        product_type = order_data.get("商品类型", '').strip()
+        product_type = order_data.get("商品类型", '')
+        if product_type is None:
+            product_type = ''
+        elif isinstance(product_type, str):
+            product_type = product_type.strip()
         if product_type and product_type not in ['国标', '母婴']:
             errors.append("商品类型只能是'国标'或'母婴'")
-        
+
         # 成交金额格式检查
-        amount = order_data.get("成交金额", '').strip()
+        amount = order_data.get("成交金额", '')
+        if amount is None:
+            amount = ''
+        elif isinstance(amount, str):
+            amount = amount.strip()
         if amount:
             try:
                 float(amount)
             except ValueError:
                 errors.append("成交金额格式不正确")
-        
+
         # 履约时间格式检查
-        fulfillment_date = order_data.get("履约时间", '').strip()
+        fulfillment_date = order_data.get("履约时间", '')
+        if fulfillment_date is None:
+            fulfillment_date = ''
+        elif isinstance(fulfillment_date, str):
+            fulfillment_date = fulfillment_date.strip()
         if fulfillment_date:
             try:
                 datetime.strptime(fulfillment_date, '%Y-%m-%d')
