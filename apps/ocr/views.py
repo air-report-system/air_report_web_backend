@@ -410,10 +410,11 @@ class UploadAndProcessView(APIView):
                         # 尝试降级到 Gemini API
                         logger.info("尝试降级到 Gemini API")
                         try:
-                            from .services import GeminiOCRService
+                            from .services import get_ocr_service
                             import tempfile
                             
-                            gemini_service = GeminiOCRService()
+                            logger.info("降级处理：尝试使用动态配置的默认服务。")
+                            gemini_service = get_ocr_service() # 使用工厂函数获取动态配置的服务
                             
                             # 创建临时文件用于处理
                             with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:

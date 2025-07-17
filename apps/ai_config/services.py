@@ -251,6 +251,7 @@ class AIServiceManager:
             return self._current_service
 
         # 尝试从数据库获取默认配置
+        logger.debug("AIServiceManager: 开始从数据库获取默认AI配置...")
         try:
             db_config = AIServiceConfig.objects.filter(
                 is_active=True,
@@ -258,18 +259,26 @@ class AIServiceManager:
             ).first()
 
             if db_config:
+                logger.debug(f"AIServiceManager: 成功从数据库找到默认配置: ID={db_config.id}, 名称='{db_config.name}'")
                 self._current_service = self._db_config_to_dict(db_config)
                 return self._current_service
+            else:
+                logger.debug("AIServiceManager: 数据库中没有找到激活的默认配置。")
         except Exception as e:
-            logger.warning(f"从数据库获取配置失败: {e}")
+            logger.warning(f"AIServiceManager: 从数据库获取配置时发生错误: {e}")
 
         # 从配置文件获取默认配置
+        logger.debug("AIServiceManager: 尝试从JSON配置文件获取默认配置...")
         file_config = self.config_manager.get_default_service_config()
         if file_config:
+            logger.debug(f"AIServiceManager: 成功从JSON文件找到默认配置: 名称='{file_config.get('name')}'")
             self._current_service = file_config
             return self._current_service
+        else:
+            logger.debug("AIServiceManager: JSON配置文件中也没有找到默认配置。")
 
         # 最后回退到环境变量配置
+        logger.debug("AIServiceManager: 回退到环境变量配置。")
         return self._get_env_fallback_config()
 
     def get_available_services(self) -> List[Dict[str, Any]]:

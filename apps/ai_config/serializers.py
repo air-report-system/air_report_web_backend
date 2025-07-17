@@ -11,6 +11,7 @@ class AIServiceConfigSerializer(serializers.ModelSerializer):
     """AI服务配置序列化器"""
     
     success_rate = serializers.ReadOnlyField()
+    extra_config = serializers.JSONField(default=dict, required=False)
     
     class Meta:
         model = AIServiceConfig

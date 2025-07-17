@@ -208,17 +208,24 @@ class OCRService:
 class GeminiOCRService(OCRService):
     """Gemini OCR服务"""
 
-    def __init__(self):
+    def __init__(self, config: Dict[str, Any] = None):
         super().__init__()
-        self.api_key = settings.GEMINI_API_KEY
-        self.base_url = getattr(settings, 'GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com')
-        self.model_name = getattr(settings, 'GEMINI_MODEL_NAME', 'gemini-1.5-flash-latest')
+        if config:
+            self.api_key = config.get('api_key')
+            self.base_url = config.get('api_base_url')
+            self.model_name = config.get('model_name')
+            self.timeout = config.get('timeout_seconds', 60)
+        else:
+            # 回退逻辑
+            self.api_key = settings.GEMINI_API_KEY
+            self.base_url = getattr(settings, 'GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com')
+            self.model_name = getattr(settings, 'GEMINI_MODEL_NAME', 'gemini-1.5-flash-latest')
 
         # 代理设置已移除
         self.proxies = None
 
         if not self.api_key:
-            raise ValueError("GEMINI_API_KEY未设置")
+            raise ValueError("Gemini API Key未设置 (无论是从动态配置还是环境变量)")
     
     def process_image(self, image_path: str) -> Dict[str, Any]:
         """
@@ -230,6 +237,16 @@ class GeminiOCRService(OCRService):
         Returns:
             dict: OCR结果
         """
+        from apps.ai_config.services import ai_service_manager
+        config = ai_service_manager.get_current_service_config()
+
+        if config and config.get('provider') == 'gemini':
+            logger.info(f"GeminiOCRService: 运行时动态加载配置 '{config.get('name')}'")
+            self.api_key = config.get('api_key')
+            self.base_url = config.get('api_base_url')
+            self.model_name = config.get('model_name')
+            self.timeout = config.get('timeout_seconds', 60)
+        
         try:
             logger.info(f"开始Gemini OCR处理: {image_path}")
             
@@ -241,6 +258,9 @@ class GeminiOCRService(OCRService):
             image_base64 = self.encode_image_to_base64(image_path)
             logger.info(f"图片编码完成，大小: {len(image_base64)} 字符")
             
+            if not self.api_key:
+                raise ValueError("Gemini API Key未配置")
+
             # 构建请求
             url = f"{self.base_url}/v1beta/models/{self.model_name}:generateContent"
             
@@ -403,17 +423,24 @@ class GeminiOCRService(OCRService):
 class OpenAIOCRService(OCRService):
     """OpenAI OCR服务（备用）"""
 
-    def __init__(self):
+    def __init__(self, config: Dict[str, Any] = None):
         super().__init__()
-        self.api_key = settings.OPENAI_API_KEY
-        self.base_url = getattr(settings, 'OPENAI_BASE_URL', 'https://api.openai.com/v1')
-        self.model_name = getattr(settings, 'OPENAI_MODEL_NAME', 'gpt-4-vision-preview')
+        if config:
+            self.api_key = config.get('api_key')
+            self.base_url = config.get('api_base_url')
+            self.model_name = config.get('model_name')
+            self.timeout = config.get('timeout_seconds', 60)
+        else:
+            # 回退逻辑
+            self.api_key = settings.OPENAI_API_KEY
+            self.base_url = getattr(settings, 'OPENAI_BASE_URL', 'https://api.openai.com/v1')
+            self.model_name = getattr(settings, 'OPENAI_MODEL_NAME', 'gpt-4-vision-preview')
 
         # 代理设置已移除
         self.proxies = None
 
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY未设置")
+            raise ValueError("OpenAI API Key未设置 (无论是从动态配置还是环境变量)")
     
     def process_image(self, image_path: str) -> Dict[str, Any]:
         """
@@ -425,10 +452,23 @@ class OpenAIOCRService(OCRService):
         Returns:
             dict: OCR结果
         """
+        from apps.ai_config.services import ai_service_manager
+        config = ai_service_manager.get_current_service_config()
+
+        if config and config.get('provider') == 'openai':
+            logger.info(f"OpenAIOCRService: 运行时动态加载配置 '{config.get('name')}'")
+            self.api_key = config.get('api_key')
+            self.base_url = config.get('api_base_url')
+            self.model_name = config.get('model_name')
+            self.timeout = config.get('timeout_seconds', 60)
+
         try:
             # 编码图片
             image_base64 = self.encode_image_to_base64(image_path)
             
+            if not self.api_key:
+                raise ValueError("OpenAI API Key未配置")
+
             # 构建请求
             url = f"{self.base_url}/chat/completions"
             
@@ -501,7 +541,8 @@ class EnhancedOCRService:
 
     def __init__(self):
         self.timeout = getattr(settings, 'OCR_TIMEOUT_SECONDS', 60)
-        self.base_service = get_ocr_service()
+        # 不再在初始化时固定base_service，改为在每次请求时动态获取
+        # self.base_service = get_ocr_service()
 
     def process_image_multi_ocr(self, image_path: str, ocr_count: int = 3) -> Dict[str, Any]:
         """
@@ -515,11 +556,15 @@ class EnhancedOCRService:
             dict: 包含最佳结果和冲突分析的OCR结果
         """
         results = []
+        
+        # 每次调用时动态获取最新的OCR服务
+        base_service = get_ocr_service()
+        logger.info(f"EnhancedOCRService: 动态获取的基础服务提供商: {base_service.__class__.__name__}")
 
         # 执行多次OCR
         for i in range(ocr_count):
             try:
-                result = self.base_service.process_image(image_path)
+                result = base_service.process_image(image_path)
                 result['attempt'] = i + 1
                 results.append(result)
 
@@ -635,16 +680,35 @@ class EnhancedOCRService:
 def get_ocr_service() -> OCRService:
     """
     获取OCR服务实例
+    现在会从AI配置管理器动态获取当前默认服务
 
     Returns:
         OCRService: OCR服务实例
     """
-    use_openai = getattr(settings, 'USE_OPENAI_OCR', False)
+    from apps.ai_config.services import ai_service_manager
+    
+    config = ai_service_manager.get_current_service_config()
 
-    if use_openai:
-        return OpenAIOCRService()
+    if not config:
+        # 如果数据库和文件都没有配置，回退到原始的环境变量逻辑
+        logger.warning("无法获取任何动态AI服务配置，回退到环境变量设置")
+        use_openai = getattr(settings, 'USE_OPENAI_OCR', False)
+        if use_openai:
+            return OpenAIOCRService()
+        else:
+            return GeminiOCRService()
+
+    # 根据API格式决定使用哪个服务类
+    api_format = config.get('api_format', 'openai')  # 默认为 'openai'
+    logger.info(f"动态获取OCR服务，使用配置: '{config.get('name')}', 提供商: {config.get('provider')}, API格式: {api_format}")
+
+    if api_format == 'openai':
+        return OpenAIOCRService(config=config)
+    elif api_format == 'gemini':
+        return GeminiOCRService(config=config)
     else:
-        return GeminiOCRService()
+        logger.error(f"未知的API格式 '{api_format}'，无法选择OCR服务。")
+        raise Exception(f"未知的API格式 '{api_format}'")
 
 
 class ContactMatchingService:

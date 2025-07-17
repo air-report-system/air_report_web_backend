@@ -50,7 +50,7 @@ class AIServiceConfig(BaseModel):
         help_text='API服务的基础URL'
     )
     api_key = models.CharField(
-        max_length=500, 
+        max_length=500,
         verbose_name='API密钥',
         help_text='API访问密钥，将被加密存储'
     )

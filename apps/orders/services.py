@@ -49,46 +49,33 @@ class OrderInfoProcessor:
     """订单信息处理器 - 复用GUI项目的format_wechat_message逻辑"""
     
     def __init__(self):
-        """初始化 AI 服务"""
-        # 检查是否使用OpenAI兼容接口
-        self.use_openai = getattr(settings, 'USE_OPENAI_OCR', False)
+        """初始化 AI 服务 - 强制使用AI配置管理器"""
+        from apps.ai_config.services import ai_service_manager
         
-        if self.use_openai:
-            self._init_openai_service()
-        else:
-            self._init_gemini_service()
-    
-    def _init_openai_service(self):
-        """初始化OpenAI兼容服务"""
-        self.api_key = getattr(settings, 'OPENAI_API_KEY', None)
-        if not self.api_key:
-            raise ValueError("OPENAI_API_KEY未配置")
-        
-        self.base_url = getattr(settings, 'OPENAI_BASE_URL', 'https://api.openai.com/v1')
-        self.model_name = getattr(settings, 'OPENAI_MODEL_NAME', 'gpt-4o-mini')
-        
-        # 代理设置已移除
-        
-        print(f"OpenAI兼容服务初始化成功，使用模型: {self.model_name}")
-        print(f"API基础URL: {self.base_url}")
-    
-    def _init_gemini_service(self):
-        """初始化Gemini服务"""
-        api_key = getattr(settings, 'GEMINI_API_KEY', None)
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY未配置")
+        config = ai_service_manager.get_current_service_config()
+        if not config:
+            raise ValueError("无法从AI配置管理器获取任何有效的AI配置")
 
-        try:
-            # 代理设置已移除
-            genai.configure(api_key=api_key)
-            model_name = getattr(settings, 'GEMINI_MODEL_NAME')
-            print(f"从settings读取到的模型名称: {model_name}")
-            print(f"settings.GEMINI_MODEL_NAME = {settings.GEMINI_MODEL_NAME}")
-            self.model = genai.GenerativeModel(model_name)
-            print(f"Gemini API初始化成功，使用模型: {model_name}")
-        except Exception as e:
-            print(f"Gemini API初始化失败: {str(e)}")
-            raise
+        self.api_format = config.get('api_format', 'openai')
+        self.api_key = config.get('api_key')
+        self.base_url = config.get('api_base_url')
+        self.model_name = config.get('model_name')
+        
+        if not self.api_key:
+            raise ValueError("从AI配置管理器获取的配置缺少API Key")
+
+        print(f"订单处理器初始化成功，使用配置: '{config.get('name')}'")
+        print(f"API格式: {self.api_format}, 模型: {self.model_name}")
+        print(f"API基础URL: {self.base_url}")
+
+        # 如果是gemini，需要额外配置genai库
+        if self.api_format == 'gemini':
+            try:
+                genai.configure(api_key=self.api_key)
+                self.model = genai.GenerativeModel(self.model_name)
+            except Exception as e:
+                print(f"Gemini API初始化失败: {str(e)}")
+                raise
 
     # 代理设置方法已移除
     
@@ -99,10 +86,12 @@ class OrderInfoProcessor:
         复用GUI项目的format_wechat_message函数逻辑
         """
         try:
-            if self.use_openai:
+            if self.api_format == 'openai':
                 return self._format_with_openai(order_text)
-            else:
+            elif self.api_format == 'gemini':
                 return self._format_with_gemini(order_text)
+            else:
+                raise ValueError(f"不支持的API格式: {self.api_format}")
         except Exception as e:
             print(f"AI API调用失败，使用本地处理: {str(e)}")
             # 如果AI API失败，使用本地处理方式
@@ -114,10 +103,12 @@ class OrderInfoProcessor:
         处理多个订单的信息，返回多行CSV数据
         """
         try:
-            if self.use_openai:
+            if self.api_format == 'openai':
                 return self._format_multiple_with_openai(order_text)
-            else:
+            elif self.api_format == 'gemini':
                 return self._format_multiple_with_gemini(order_text)
+            else:
+                raise ValueError(f"不支持的API格式: {self.api_format}")
         except Exception as e:
             print(f"AI API调用失败，使用本地处理: {str(e)}")
             # 如果AI API失败，使用本地处理方式

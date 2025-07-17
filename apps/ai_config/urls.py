@@ -10,7 +10,7 @@ from .views import (
 )
 
 # 创建路由器
-router = DefaultRouter()
+router = DefaultRouter(trailing_slash=False)
 router.register(r'configs', AIServiceConfigViewSet, basename='ai-config')
 router.register(r'history', AIConfigHistoryViewSet, basename='ai-config-history')
 router.register(r'logs', AIServiceUsageLogViewSet, basename='ai-usage-log')
