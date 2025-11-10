@@ -207,9 +207,9 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 config.is_active = True
                 config.save()
-                ai_service_manager.clear_cache()
+                transaction.on_commit(lambda: ai_service_manager.clear_cache())
                 if config.is_default:
-                    ai_service_manager.switch_service(config.name, request.user)
+                    transaction.on_commit(lambda: ai_service_manager.switch_service(config.name, request.user))
                 
                 # 记录激活历史
                 AIConfigHistory.objects.create(
@@ -249,7 +249,7 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 config.is_active = False
                 config.save()
-                ai_service_manager.clear_cache()
+                transaction.on_commit(lambda: ai_service_manager.clear_cache())
                 
                 # 记录停用历史
                 AIConfigHistory.objects.create(
@@ -292,7 +292,7 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
                 # 设置当前配置为默认
                 config.is_default = True
                 config.save()
-                ai_service_manager.switch_service(config.name, request.user)
+                transaction.on_commit(lambda: ai_service_manager.switch_service(config.name, request.user))
                 
                 # 记录历史
                 AIConfigHistory.objects.create(

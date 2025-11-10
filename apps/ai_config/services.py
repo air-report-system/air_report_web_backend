@@ -4,6 +4,7 @@ AI配置管理服务
 import json
 import os
 import shutil
+import copy
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -254,18 +255,21 @@ class AIServiceManager:
                 logger.warning(f"清理服务缓存时发生异常，重建缓存: {e}")
                 self._service_cache = {}
             self._current_service = None
-            try:
-                from .factory import ai_service_factory
-                if hasattr(ai_service_factory, '_current_service'):
-                    ai_service_factory._current_service = None
-            except Exception as e:
-                logger.debug(f"同步清理工厂缓存失败: {e}")
+        
+        try:
+            from .factory import ai_service_factory
+            if hasattr(ai_service_factory, '_current_service'):
+                ai_service_factory._current_service = None
+            if getattr(ai_service_factory, '_current_service', None) is not None:
+                raise RuntimeError("工厂缓存清理失败")
+        except Exception as e:
+            logger.warning(f"同步清理工厂缓存失败: {e}", exc_info=True)
 
     def get_current_service_config(self) -> Optional[Dict[str, Any]]:
         """获取当前使用的服务配置"""
         with self._lock:
             if self._current_service:
-                return dict(self._current_service)
+                return copy.deepcopy(self._current_service)
 
         # 尝试从数据库获取默认配置
         logger.debug("AIServiceManager: 开始从数据库获取默认AI配置...")
@@ -279,7 +283,7 @@ class AIServiceManager:
                 logger.debug(f"AIServiceManager: 成功从数据库找到默认配置: ID={db_config.id}, 名称='{db_config.name}'")
                 with self._lock:
                     self._current_service = self._db_config_to_dict(db_config)
-                    return dict(self._current_service)
+                    return copy.deepcopy(self._current_service)
             else:
                 logger.debug("AIServiceManager: 数据库中没有找到激活的默认配置。")
         except Exception as e:
@@ -292,7 +296,7 @@ class AIServiceManager:
             logger.debug(f"AIServiceManager: 成功从JSON文件找到默认配置: 名称='{file_config.get('name')}'")
             with self._lock:
                 self._current_service = file_config
-                return dict(self._current_service)
+                return copy.deepcopy(self._current_service)
         else:
             logger.debug("AIServiceManager: JSON配置文件中也没有找到默认配置。")
 
@@ -336,7 +340,7 @@ class AIServiceManager:
                     if hasattr(ai_service_factory, '_current_service'):
                         ai_service_factory._current_service = None
                 except Exception as e:
-                    logger.debug(f"切换服务时同步清理工厂缓存失败: {e}")
+                    logger.warning(f"切换服务时同步清理工厂缓存失败: {e}", exc_info=True)
                 return True
 
             # 从配置文件查找服务
@@ -351,7 +355,7 @@ class AIServiceManager:
                     if hasattr(ai_service_factory, '_current_service'):
                         ai_service_factory._current_service = None
                 except Exception as e:
-                    logger.debug(f"切换服务时同步清理工厂缓存失败: {e}")
+                    logger.warning(f"切换服务时同步清理工厂缓存失败: {e}", exc_info=True)
                 return True
 
             logger.error(f"服务 {service_name} 不存在或未激活")

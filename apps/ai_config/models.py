@@ -2,6 +2,7 @@
 AI配置管理模型
 """
 from django.db import models
+from django.db.models import F
 from django.contrib.auth import get_user_model
 from django.core.validators import URLValidator
 from django.utils import timezone
@@ -119,9 +120,12 @@ class AIServiceConfig(BaseModel):
         if self.is_default:
             from django.db import transaction
             with transaction.atomic():
-                AIServiceConfig.objects.select_for_update().filter(
+                qs = AIServiceConfig.objects.select_for_update().filter(
                     is_default=True
-                ).exclude(pk=self.pk).update(is_default=False)
+                ).exclude(pk=self.pk)
+                locked_ids = list(qs.values_list('pk', flat=True))
+                if locked_ids:
+                    AIServiceConfig.objects.filter(pk__in=locked_ids).update(is_default=False)
                 return super().save(*args, **kwargs)
         return super().save(*args, **kwargs)
     
@@ -135,14 +139,18 @@ class AIServiceConfig(BaseModel):
     
     def increment_success(self):
         """增加成功计数"""
-        self.success_count += 1
-        self.last_used_at = timezone.now()
-        self.save(update_fields=['success_count', 'last_used_at'])
+        self.__class__.objects.filter(pk=self.pk).update(
+            success_count=F('success_count') + 1,
+            last_used_at=timezone.now()
+        )
+        self.refresh_from_db(fields=['success_count', 'last_used_at'])
     
     def increment_failure(self):
         """增加失败计数"""
-        self.failure_count += 1
-        self.save(update_fields=['failure_count'])
+        self.__class__.objects.filter(pk=self.pk).update(
+            failure_count=F('failure_count') + 1
+        )
+        self.refresh_from_db(fields=['failure_count'])
     
     def update_test_result(self, result):
         """更新测试结果"""
