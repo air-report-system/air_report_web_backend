@@ -2,7 +2,7 @@
 AI配置管理模型
 """
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import F
 from django.contrib.auth import get_user_model
 from django.core.validators import URLValidator
 from django.utils import timezone
@@ -118,26 +118,13 @@ class AIServiceConfig(BaseModel):
     def save(self, *args, **kwargs):
         if self.is_default:
             from django.db import transaction
-            from django.db.models import Q
-
+            
             with transaction.atomic():
-                filter_condition = Q(is_default=True)
-                if self.pk:
-                    filter_condition |= Q(pk=self.pk)
-
-                locked_ids = list(
-                    AIServiceConfig.objects.select_for_update()
-                    .filter(filter_condition)
-                    .order_by('pk')
-                    .values_list('pk', flat=True)
-                )
-
-                ids_to_unset = [pk for pk in locked_ids if pk != self.pk]
-                if ids_to_unset:
-                    AIServiceConfig.objects.filter(pk__in=ids_to_unset).update(is_default=False)
-
-                return super().save(*args, **kwargs)
-        return super().save(*args, **kwargs)
+                # 取消其他所有默认配置
+                AIServiceConfig.objects.filter(is_default=True).exclude(pk=self.pk).update(is_default=False)
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
     
     @property
     def success_rate(self):

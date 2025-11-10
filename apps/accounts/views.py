@@ -70,12 +70,13 @@ class LogoutView(APIView):
 
 
 class UserProfileView(APIView):
-    """用户信息视图 - 返回当前用户基本信息"""
+    """用户配置视图"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """获取当前用户基本信息"""
-        serializer = UserSerializer(request.user)
+        """获取用户配置信息"""
+        profile, created = UserProfile.objects.get_or_create(user=request.user)
+        serializer = UserProfileSerializer(profile)
         return Response(serializer.data)
 
     def put(self, request):
