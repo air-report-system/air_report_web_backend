@@ -263,7 +263,7 @@ class AIServiceManager:
         except Exception as e:
             logger.warning(f"同步清理工厂缓存失败: {e}", exc_info=True)
 
-    def get_current_service_config(self) -> Optional[Dict[str, Any]]:
+    def get_current_service_config(self, user=None) -> Optional[Dict[str, Any]]:
         """获取当前使用的服务配置"""
         with self._lock:
             if self._current_service:
@@ -272,10 +272,15 @@ class AIServiceManager:
         # 尝试从数据库获取默认配置
         logger.debug("AIServiceManager: 开始从数据库获取默认AI配置...")
         try:
-            db_config = AIServiceConfig.objects.filter(
+            queryset = AIServiceConfig.objects.filter(
                 is_active=True,
                 is_default=True
-            ).first()
+            )
+            # 用户隔离：如果提供了用户，只查询该用户的配置
+            if user:
+                queryset = queryset.filter(created_by=user)
+            
+            db_config = queryset.first()
 
             if db_config:
                 logger.debug(f"AIServiceManager: 成功从数据库找到默认配置: ID={db_config.id}, 名称='{db_config.name}'")
@@ -302,13 +307,18 @@ class AIServiceManager:
         logger.debug("AIServiceManager: 回退到环境变量配置。")
         return self._get_env_fallback_config()
 
-    def get_available_services(self) -> List[Dict[str, Any]]:
+    def get_available_services(self, user=None) -> List[Dict[str, Any]]:
         """获取所有可用的服务配置"""
         services = []
 
         # 从数据库获取配置
         try:
-            db_configs = AIServiceConfig.objects.filter(is_active=True).order_by('priority')
+            queryset = AIServiceConfig.objects.filter(is_active=True)
+            # 用户隔离：如果提供了用户，只查询该用户的配置
+            if user:
+                queryset = queryset.filter(created_by=user)
+            
+            db_configs = queryset.order_by('priority')
             for config in db_configs:
                 services.append(self._db_config_to_dict(config))
         except Exception as e:
@@ -324,10 +334,15 @@ class AIServiceManager:
         """切换到指定服务"""
         try:
             # 从数据库查找服务
-            db_config = AIServiceConfig.objects.filter(
+            queryset = AIServiceConfig.objects.filter(
                 name=service_name,
                 is_active=True
-            ).first()
+            )
+            # 用户隔离：如果提供了用户，只查询该用户的配置
+            if user:
+                queryset = queryset.filter(created_by=user)
+            
+            db_config = queryset.first()
 
             if db_config:
                 with self._lock:
@@ -401,8 +416,8 @@ class AIServiceManager:
         # 记录故障
         self._log_service_failure(failed_service, error, user)
 
-        # 获取备用服务列表
-        available_services = self.get_available_services()
+        # 获取备用服务列表（按用户隔离）
+        available_services = self.get_available_services(user=user)
 
         for service in available_services:
             service_name = service.get('service_name') or service.get('name')

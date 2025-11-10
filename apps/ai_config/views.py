@@ -88,6 +88,9 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         
+        # 用户隔离：只返回当前用户创建的配置
+        queryset = queryset.filter(created_by=self.request.user)
+        
         # 过滤参数
         is_active = self.request.query_params.get('is_active')
         provider = self.request.query_params.get('provider')
@@ -394,7 +397,7 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
         """获取AI服务状态"""
         try:
             serializer = AIServiceStatusSerializer()
-            status_data = serializer.get_status()
+            status_data = serializer.get_status(user=request.user)
             
             return Response({
                 'success': True,

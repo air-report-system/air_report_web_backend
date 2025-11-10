@@ -160,7 +160,9 @@ class AIServiceSwitchSerializer(serializers.Serializer):
     
     def validate_service_name(self, value):
         """验证服务名称"""
-        available_services = ai_service_manager.get_available_services()
+        # 从 context中获取用户
+        user = self.context.get('request').user if self.context.get('request') else None
+        available_services = ai_service_manager.get_available_services(user=user)
         
         service_names = [
             service.get('service_name') or service.get('name') 
@@ -186,10 +188,10 @@ class AIServiceStatusSerializer(serializers.Serializer):
     total_services = serializers.IntegerField(read_only=True)
     active_services = serializers.IntegerField(read_only=True)
     
-    def get_status(self):
+    def get_status(self, user=None):
         """获取服务状态"""
-        current_service = ai_service_manager.get_current_service_config()
-        available_services = ai_service_manager.get_available_services()
+        current_service = ai_service_manager.get_current_service_config(user=user)
+        available_services = ai_service_manager.get_available_services(user=user)
         
         return {
             'current_service': current_service,
