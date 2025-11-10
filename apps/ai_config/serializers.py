@@ -4,7 +4,7 @@ AI配置序列化器
 from rest_framework import serializers
 from django.core.validators import URLValidator
 from .models import AIServiceConfig, AIConfigHistory, AIServiceUsageLog
-from .services import AIServiceManager
+from .services import AIServiceManager, ai_service_manager
 
 
 class AIServiceConfigSerializer(serializers.ModelSerializer):
@@ -161,8 +161,7 @@ class AIServiceSwitchSerializer(serializers.Serializer):
     
     def validate_service_name(self, value):
         """验证服务名称"""
-        service_manager = AIServiceManager()
-        available_services = service_manager.get_available_services()
+        available_services = ai_service_manager.get_available_services()
         
         service_names = [
             service.get('service_name') or service.get('name') 
@@ -176,9 +175,8 @@ class AIServiceSwitchSerializer(serializers.Serializer):
     
     def switch_service(self, user=None):
         """执行服务切换"""
-        service_manager = AIServiceManager()
         service_name = self.validated_data['service_name']
-        return service_manager.switch_service(service_name, user)
+        return ai_service_manager.switch_service(service_name, user)
 
 
 class AIServiceStatusSerializer(serializers.Serializer):
@@ -191,10 +189,8 @@ class AIServiceStatusSerializer(serializers.Serializer):
     
     def get_status(self):
         """获取服务状态"""
-        service_manager = AIServiceManager()
-        
-        current_service = service_manager.get_current_service_config()
-        available_services = service_manager.get_available_services()
+        current_service = ai_service_manager.get_current_service_config()
+        available_services = ai_service_manager.get_available_services()
         
         return {
             'current_service': current_service,

@@ -4,7 +4,7 @@ AI服务工厂模式实现
 import logging
 from typing import Dict, Any, Optional, Type
 from abc import ABC, abstractmethod
-from .services import AIServiceManager
+from .services import AIServiceManager, ai_service_manager
 from .models import AIServiceUsageLog
 from .monitoring import ai_monitor, ai_error_handler, monitor_ai_service, log_ai_operation
 from django.utils import timezone
@@ -341,7 +341,7 @@ class AIServiceFactory:
     }
     
     def __init__(self):
-        self.service_manager = AIServiceManager()
+        self.service_manager = ai_service_manager
         self._current_service = None
     
     def get_service(self, service_name: Optional[str] = None) -> BaseAIService:

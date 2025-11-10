@@ -19,7 +19,7 @@ from .serializers import (
     AIServiceSwitchSerializer, AIServiceStatusSerializer,
     AIServiceStatsSerializer
 )
-from .services import AIServiceManager
+from .services import AIServiceManager, ai_service_manager
 from .monitoring import get_system_health, ai_monitor
 import logging
 
@@ -166,11 +166,10 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
         config = self.get_object()
         
         try:
-            service_manager = AIServiceManager()
-            config_dict = service_manager._db_config_to_dict(config)
+            config_dict = ai_service_manager._db_config_to_dict(config)
             
             # 执行测试
-            test_result = service_manager.test_service(config_dict)
+            test_result = ai_service_manager.test_service(config_dict)
             
             # 更新测试结果
             config.update_test_result(test_result)
@@ -208,6 +207,7 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 config.is_active = True
                 config.save()
+                ai_service_manager.clear_cache()
                 
                 # 记录激活历史
                 AIConfigHistory.objects.create(
@@ -247,6 +247,7 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 config.is_active = False
                 config.save()
+                ai_service_manager.clear_cache()
                 
                 # 记录停用历史
                 AIConfigHistory.objects.create(
@@ -289,6 +290,7 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
                 # 设置当前配置为默认
                 config.is_default = True
                 config.save()
+                ai_service_manager.switch_service(config.name, request.user)
                 
                 # 记录历史
                 AIConfigHistory.objects.create(

@@ -245,6 +245,13 @@ class AIServiceManager:
         self._current_service = None
         self._service_cache = {}
 
+    def clear_cache(self):
+        try:
+            self._service_cache.clear()
+        except Exception:
+            self._service_cache = {}
+        self._current_service = None
+
     def get_current_service_config(self) -> Optional[Dict[str, Any]]:
         """获取当前使用的服务配置"""
         if self._current_service:
