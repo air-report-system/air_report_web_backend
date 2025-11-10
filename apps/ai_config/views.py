@@ -292,7 +292,7 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
         try:
             with transaction.atomic():
                 # 取消其他默认配置
-                AIServiceConfig.objects.filter(is_default=True).update(is_default=False)
+                AIServiceConfig.objects.filter(created_by=request.user, is_default=True).update(is_default=False)
                 
                 # 设置当前配置为默认
                 config.is_default = True
