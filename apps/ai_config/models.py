@@ -120,6 +120,9 @@ class AIServiceConfig(BaseModel):
             from django.db import transaction
             
             with transaction.atomic():
+                # 锁定当前所有默认配置，防止并发竞态条件
+                list(AIServiceConfig.objects.filter(is_default=True).select_for_update())
+                
                 # 取消其他所有默认配置
                 AIServiceConfig.objects.filter(is_default=True).exclude(pk=self.pk).update(is_default=False)
                 super().save(*args, **kwargs)
