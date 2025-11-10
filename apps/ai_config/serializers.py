@@ -116,8 +116,7 @@ class AIServiceTestSerializer(serializers.Serializer):
     
     def test_service(self):
         """执行服务测试"""
-        service_manager = AIServiceManager()
-        return service_manager.test_service(self.validated_data)
+        return ai_service_manager.test_service(self.validated_data)
 
 
 class AIConfigHistorySerializer(serializers.ModelSerializer):

@@ -208,6 +208,8 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
                 config.is_active = True
                 config.save()
                 ai_service_manager.clear_cache()
+                if config.is_default:
+                    ai_service_manager.switch_service(config.name, request.user)
                 
                 # 记录激活历史
                 AIConfigHistory.objects.create(

@@ -116,10 +116,14 @@ class AIServiceConfig(BaseModel):
         return f"{self.name} ({self.get_provider_display()})"
     
     def save(self, *args, **kwargs):
-        # 确保只有一个默认配置
         if self.is_default:
-            AIServiceConfig.objects.filter(is_default=True).update(is_default=False)
-        super().save(*args, **kwargs)
+            from django.db import transaction
+            with transaction.atomic():
+                AIServiceConfig.objects.select_for_update().filter(
+                    is_default=True
+                ).exclude(pk=self.pk).update(is_default=False)
+                return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
     
     @property
     def success_rate(self):

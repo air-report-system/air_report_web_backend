@@ -12,9 +12,9 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from .models import AIServiceConfig, AIConfigHistory, AIServiceUsageLog
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
-
 
 class AIConfigFileManager:
     """AI配置文件管理器"""
@@ -244,18 +244,28 @@ class AIServiceManager:
         self.config_manager = AIConfigFileManager()
         self._current_service = None
         self._service_cache = {}
+        self._lock = threading.RLock()
 
     def clear_cache(self):
-        try:
-            self._service_cache.clear()
-        except Exception:
-            self._service_cache = {}
-        self._current_service = None
+        with self._lock:
+            try:
+                self._service_cache.clear()
+            except Exception as e:
+                logger.warning(f"清理服务缓存时发生异常，重建缓存: {e}")
+                self._service_cache = {}
+            self._current_service = None
+            try:
+                from .factory import ai_service_factory
+                if hasattr(ai_service_factory, '_current_service'):
+                    ai_service_factory._current_service = None
+            except Exception as e:
+                logger.debug(f"同步清理工厂缓存失败: {e}")
 
     def get_current_service_config(self) -> Optional[Dict[str, Any]]:
         """获取当前使用的服务配置"""
-        if self._current_service:
-            return self._current_service
+        with self._lock:
+            if self._current_service:
+                return dict(self._current_service)
 
         # 尝试从数据库获取默认配置
         logger.debug("AIServiceManager: 开始从数据库获取默认AI配置...")
@@ -267,8 +277,9 @@ class AIServiceManager:
 
             if db_config:
                 logger.debug(f"AIServiceManager: 成功从数据库找到默认配置: ID={db_config.id}, 名称='{db_config.name}'")
-                self._current_service = self._db_config_to_dict(db_config)
-                return self._current_service
+                with self._lock:
+                    self._current_service = self._db_config_to_dict(db_config)
+                    return dict(self._current_service)
             else:
                 logger.debug("AIServiceManager: 数据库中没有找到激活的默认配置。")
         except Exception as e:
@@ -279,8 +290,9 @@ class AIServiceManager:
         file_config = self.config_manager.get_default_service_config()
         if file_config:
             logger.debug(f"AIServiceManager: 成功从JSON文件找到默认配置: 名称='{file_config.get('name')}'")
-            self._current_service = file_config
-            return self._current_service
+            with self._lock:
+                self._current_service = file_config
+                return dict(self._current_service)
         else:
             logger.debug("AIServiceManager: JSON配置文件中也没有找到默认配置。")
 
@@ -316,15 +328,30 @@ class AIServiceManager:
             ).first()
 
             if db_config:
-                self._current_service = self._db_config_to_dict(db_config)
+                with self._lock:
+                    self._current_service = self._db_config_to_dict(db_config)
                 self._log_service_switch(service_name, user, 'database')
+                try:
+                    from .factory import ai_service_factory
+                    if hasattr(ai_service_factory, '_current_service'):
+                        ai_service_factory._current_service = None
+                except Exception as e:
+                    logger.debug(f"切换服务时同步清理工厂缓存失败: {e}")
                 return True
 
             # 从配置文件查找服务
             file_config = self.config_manager.get_service_config(service_name)
             if file_config and file_config.get('is_active', True):
-                self._current_service = file_config
+                with self._lock:
+                    self._current_service = file_config
                 self._log_service_switch(service_name, user, 'file')
+                # 失效工厂缓存，确保下次获取到新实例
+                try:
+                    from .factory import ai_service_factory
+                    if hasattr(ai_service_factory, '_current_service'):
+                        ai_service_factory._current_service = None
+                except Exception as e:
+                    logger.debug(f"切换服务时同步清理工厂缓存失败: {e}")
                 return True
 
             logger.error(f"服务 {service_name} 不存在或未激活")
@@ -393,7 +420,8 @@ class AIServiceManager:
         logger.error("所有配置的服务都不可用，回退到环境变量配置")
         env_config = self._get_env_fallback_config()
         if env_config:
-            self._current_service = env_config
+            with self._lock:
+                self._current_service = env_config
             return env_config
 
         return None
