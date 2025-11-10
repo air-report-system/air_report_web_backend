@@ -122,7 +122,7 @@ class AIServiceConfig(BaseModel):
             with transaction.atomic():
                 qs = AIServiceConfig.objects.select_for_update().filter(
                     is_default=True
-                ).exclude(pk=self.pk)
+                ).exclude(pk=self.pk).order_by('pk')
                 locked_ids = list(qs.values_list('pk', flat=True))
                 if locked_ids:
                     AIServiceConfig.objects.filter(pk__in=locked_ids).update(is_default=False)

@@ -260,8 +260,6 @@ class AIServiceManager:
             from .factory import ai_service_factory
             if hasattr(ai_service_factory, '_current_service'):
                 ai_service_factory._current_service = None
-            if getattr(ai_service_factory, '_current_service', None) is not None:
-                raise RuntimeError("工厂缓存清理失败")
         except Exception as e:
             logger.warning(f"同步清理工厂缓存失败: {e}", exc_info=True)
 
