@@ -96,14 +96,59 @@ class MonthlyReportService:
         except Exception as e:
             logger.error(f"读取CSV文件失败: {e}")
             raise e
+
+    def _normalize_csv_columns(self, df: pd.DataFrame):
+        """
+        归一化 CSV 列名（允许用户上传的表头命名不同）。
+
+        - 必要列（按你要求）：客户姓名、客户电话、客户地址、成交金额、履约时间
+        - 其它列均为非必要：缺失不会阻断预览/生成（但相关计算会自然为空/0）
+        """
+        df = df.copy()
+
+        aliases = {
+            "客户姓名": ["姓名", "客户名称", "客户名", "联系人", "收货人"],
+            "客户电话": ["电话", "手机号", "手机", "联系电话", "联系方式"],
+            "客户地址": ["地址", "收货地址"],
+            "成交金额": ["金额", "实付", "实付价格", "实付金额", "支付金额", "付款金额", "订单金额"],
+            "履约时间": ["时间", "下单时间", "订单时间", "创建时间", "付款时间", "成交时间"],
+            # 非必要：用于兼容历史逻辑
+            "商品类型": ["服务类型", "商品类别", "类型"],
+            "备注": ["备注赠品", "赠品", "备注信息"],
+        }
+
+        for target, candidates in aliases.items():
+            if target in df.columns:
+                continue
+            for c in candidates:
+                if c in df.columns:
+                    df = df.rename(columns={c: target})
+                    break
+
+        required = ["客户姓名", "客户电话", "客户地址", "成交金额", "履约时间"]
+        missing_required = [c for c in required if c not in df.columns]
+        return df, missing_required
     
     def _preprocess_data(self, df: pd.DataFrame, config_data: Dict[str, Any]) -> pd.DataFrame:
         """
         数据预处理 - 移植自GUI项目的数据处理逻辑
         """
         try:
-            # 添加检测订单标记列
-            df["是检测订单"] = df["商品名称"].str.contains("检测", na=False)
+            # 先做列名归一化（不同CSV表头也能工作）
+            df, _missing_required = self._normalize_csv_columns(df)
+
+            # --- 兼容不同CSV列名 ---
+            # 有些CSV没有“商品名称”，但可能有“商品类型”；预览/生成都不应因缺列直接崩溃
+            if "商品名称" not in df.columns:
+                if "商品类型" in df.columns:
+                    df["商品名称"] = df["商品类型"]
+                    logger.info("CSV缺少列[商品名称]，已使用[商品类型]作为替代用于检测订单判断")
+                else:
+                    df["商品名称"] = ""
+                    logger.info("CSV缺少列[商品名称]与[商品类型]，将使用空值用于检测订单判断")
+
+            # 添加检测订单标记列（缺列时已兜底）
+            df["是检测订单"] = df["商品名称"].astype(str).str.contains("检测", na=False)
             
             # 按日期排序
             if "下单时间" in df.columns:
@@ -124,12 +169,17 @@ class MonthlyReportService:
         """数据清洗"""
         try:
             # 清理成交金额列
-            if "成交金额" in df.columns:
-                df["成交金额"] = pd.to_numeric(df["成交金额"], errors='coerce').fillna(0)
+            if "成交金额" not in df.columns:
+                # 允许预览继续；真正生成时如果缺少关键列，会在业务侧体现为金额均为0
+                df["成交金额"] = 0
+                logger.info("CSV缺少列[成交金额]，已默认填充为0")
+            df["成交金额"] = pd.to_numeric(df["成交金额"], errors='coerce').fillna(0)
             
             # 清理数量列
-            if "数量" in df.columns:
-                df["数量"] = pd.to_numeric(df["数量"], errors='coerce').fillna(1)
+            if "数量" not in df.columns:
+                df["数量"] = 1
+                logger.info("CSV缺少列[数量]，已默认填充为1")
+            df["数量"] = pd.to_numeric(df["数量"], errors='coerce').fillna(1)
             
             # 清理CMA点位数量
             if "CMA点位数量" in df.columns:
@@ -367,20 +417,36 @@ class MonthlyReportService:
     def _add_summary_rows(self, worksheet, df: pd.DataFrame):
         """添加统计行"""
         try:
-            # 计算统计数据
-            total_deal_amount = df[df["成交金额"] > 0]["成交金额"].sum()
-            total_profit_amount = df["分润金额"].sum()
-            total_cma_cost = df["CMA成本"].sum()
+            # 计算统计数据（允许任意列被移除：缺列则跳过对应统计）
             total_order_count = len(df)
+
+            total_deal_amount = None
+            if "成交金额" in df.columns:
+                try:
+                    total_deal_amount = df[df["成交金额"] > 0]["成交金额"].sum()
+                except Exception:
+                    total_deal_amount = df["成交金额"].sum()
+
+            total_profit_amount = df["分润金额"].sum() if "分润金额" in df.columns else None
+            total_cma_cost = df["CMA成本"].sum() if "CMA成本" in df.columns else None
             
             # 添加统计行
             summary_row = len(df) + 3
             
             worksheet.cell(row=summary_row, column=1).value = "统计汇总"
-            worksheet.cell(row=summary_row + 1, column=1).value = f"成交金额总计: {total_deal_amount:.2f}"
-            worksheet.cell(row=summary_row + 2, column=1).value = f"分润金额总计: {total_profit_amount:.2f}"
-            worksheet.cell(row=summary_row + 3, column=1).value = f"CMA成本总计: {total_cma_cost:.2f}"
-            worksheet.cell(row=summary_row + 4, column=1).value = f"订单总数: {total_order_count}"
+
+            row_cursor = summary_row + 1
+            if total_deal_amount is not None:
+                worksheet.cell(row=row_cursor, column=1).value = f"成交金额总计: {float(total_deal_amount):.2f}"
+                row_cursor += 1
+            if total_profit_amount is not None:
+                worksheet.cell(row=row_cursor, column=1).value = f"分润金额总计: {float(total_profit_amount):.2f}"
+                row_cursor += 1
+            if total_cma_cost is not None:
+                worksheet.cell(row=row_cursor, column=1).value = f"CMA成本总计: {float(total_cma_cost):.2f}"
+                row_cursor += 1
+
+            worksheet.cell(row=row_cursor, column=1).value = f"订单总数: {total_order_count}"
             
             logger.info("统计行添加完成")
             

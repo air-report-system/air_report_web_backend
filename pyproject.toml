@@ -67,6 +67,8 @@ dependencies = [
     "docx2pdf>=0.1.8",
     "channels>=4.2.2",
     "channels-redis>=4.2.1",
+    # ASGI server for Django Channels (WebSocket)
+    "daphne>=4.1.0",
 ]
 
 [project.optional-dependencies]

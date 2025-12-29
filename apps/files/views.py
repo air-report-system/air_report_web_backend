@@ -2,6 +2,7 @@
 文件管理视图
 """
 import os
+import mimetypes
 from django.db import transaction
 from django.http import Http404, HttpResponse
 from rest_framework import viewsets, status
@@ -18,6 +19,29 @@ from .serializers import (
     FileUploadSerializer,
     BulkFileUploadSerializer
 )
+
+
+def _infer_file_type_from_mime(mime_type: str) -> str:
+    """根据MIME类型推断文件类型（与 UploadedFileSerializer.create 保持一致）"""
+    if not mime_type:
+        return 'other'
+    if mime_type.startswith('image/'):
+        return 'image'
+    if mime_type in [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ]:
+        return 'document'
+    if mime_type in [
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/csv',
+    ]:
+        return 'spreadsheet'
+    if mime_type == 'text/plain':
+        return 'text'
+    return 'other'
 
 
 class UploadedFileViewSet(viewsets.ModelViewSet):
@@ -104,10 +128,16 @@ class FileUploadView(APIView):
             description = serializer.validated_data.get('description', '')
 
             try:
+                # 推断 MIME / file_type（前端上传的 CSV 在后续月度报表接口会校验 file_type=spreadsheet）
+                mime_type = getattr(file, 'content_type', None) or mimetypes.guess_type(getattr(file, 'name', '') or '')[0] or 'application/octet-stream'
+                file_type = _infer_file_type_from_mime(mime_type)
+
                 # 创建文件记录
                 uploaded_file = UploadedFile.objects.create(
                     file=file,
                     original_name=file.name,
+                    mime_type=mime_type,
+                    file_type=file_type,
                     created_by=request.user
                 )
 
@@ -154,10 +184,15 @@ class BulkFileUploadView(APIView):
                 with transaction.atomic():
                     for file in files:
                         try:
+                            mime_type = getattr(file, 'content_type', None) or mimetypes.guess_type(getattr(file, 'name', '') or '')[0] or 'application/octet-stream'
+                            file_type = _infer_file_type_from_mime(mime_type)
+
                             # 创建文件记录
                             uploaded_file = UploadedFile.objects.create(
                                 file=file,
                                 original_name=file.name,
+                                mime_type=mime_type,
+                                file_type=file_type,
                                 created_by=request.user
                             )
                             uploaded_files.append(uploaded_file)

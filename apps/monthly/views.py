@@ -3,6 +3,8 @@
 """
 import os
 import logging
+import io
+from datetime import date
 from django.http import HttpResponse
 from django.db import transaction
 from django.utils import timezone
@@ -23,6 +25,7 @@ from .serializers import (
     MonthlyReportConfigSerializer
 )
 from apps.files.models import UploadedFile
+from django.core.files.base import ContentFile
 
 
 class MonthlyReportConfigViewSet(viewsets.ModelViewSet):
@@ -169,6 +172,85 @@ class MonthlyReportViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({
                 'error': f'下载失败: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @extend_schema(
+        summary="Excel预览",
+        description="返回已生成Excel的表头与部分行数据（head/tail），用于前端预览",
+        responses={200: inline_serializer(
+            name='MonthlyExcelPreviewResponse',
+            fields={
+                'sheet': serializers.CharField(),
+                'columns': serializers.ListField(child=serializers.CharField()),
+                'rows_head': serializers.ListField(child=serializers.ListField(child=serializers.CharField(allow_blank=True))),
+                'rows_tail': serializers.ListField(child=serializers.ListField(child=serializers.CharField(allow_blank=True))),
+                'total_rows': serializers.IntegerField(),
+            }
+        )}
+    )
+    @action(detail=True, methods=['get'], url_path='excel-preview')
+    def excel_preview(self, request, pk=None):
+        """Excel预览（基于已生成文件）"""
+        monthly_report = self.get_object()
+
+        if not monthly_report.excel_file or not os.path.exists(monthly_report.excel_file.path):
+            return Response({
+                'error': 'Excel文件不存在，请先生成报表'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(monthly_report.excel_file.path, data_only=True)
+            sheet_name = '账单明细' if '账单明细' in wb.sheetnames else wb.sheetnames[0]
+            ws = wb[sheet_name]
+
+            max_row = ws.max_row or 0
+            max_col = ws.max_column or 0
+
+            # 读取表头（第一行）
+            columns = []
+            if max_col > 0 and max_row >= 1:
+                for c in range(1, max_col + 1):
+                    v = ws.cell(row=1, column=c).value
+                    columns.append('' if v is None else str(v))
+
+            # 读取 head/tail（不含表头）
+            head_n = 20
+            tail_n = 20
+            data_start = 2
+            data_end = max_row
+
+            def _read_rows(start_row: int, end_row: int):
+                rows = []
+                if start_row > end_row:
+                    return rows
+                for r in range(start_row, end_row + 1):
+                    row_vals = []
+                    for c in range(1, max_col + 1):
+                        v = ws.cell(row=r, column=c).value
+                        row_vals.append('' if v is None else str(v))
+                    # 如果整行为空，仍然保留（方便看到AI追加的空行/写入位置）
+                    rows.append(row_vals)
+                return rows
+
+            head_end = min(data_start + head_n - 1, data_end)
+            tail_start = max(data_start, data_end - tail_n + 1)
+
+            rows_head = _read_rows(data_start, head_end)
+            rows_tail = _read_rows(tail_start, data_end) if data_end >= data_start else []
+
+            return Response({
+                'sheet': sheet_name,
+                'columns': columns,
+                'rows_head': rows_head,
+                'rows_tail': rows_tail,
+                'total_rows': max(0, data_end - 1)  # 不含表头
+            })
+
+        except Exception as e:
+            return Response({
+                'error': f'预览失败: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @extend_schema(
@@ -601,3 +683,196 @@ class GenerateMonthlyReportFromDBView(APIView):
                 {'error': f'生成失败: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class PreviewMonthlyReportCSVView(APIView):
+    """CSV预览：读取CSV并做基础处理，返回列与前N行，供前端列选择与预览"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="预览CSV（用于生成月度账表）",
+        description="读取上传的CSV（csv_file_id），按配置做基础处理，返回表头与前N行",
+        request=inline_serializer(
+            name='PreviewMonthlyCSVRequest',
+            fields={
+                'csv_file_id': serializers.IntegerField(help_text='UploadedFile ID（spreadsheet）'),
+                'uniform_profit_rate': serializers.BooleanField(required=False, default=False),
+            }
+        ),
+        responses={200: inline_serializer(
+            name='PreviewMonthlyCSVResponse',
+            fields={
+                'columns': serializers.ListField(child=serializers.CharField()),
+                'rows_head': serializers.ListField(child=serializers.ListField(child=serializers.CharField(allow_blank=True))),
+                'total_rows': serializers.IntegerField(),
+            }
+        )}
+    )
+    def post(self, request):
+        try:
+            csv_file_id = request.data.get('csv_file_id')
+            uniform_profit_rate = request.data.get('uniform_profit_rate', False)
+
+            if csv_file_id is None:
+                return Response({'error': 'csv_file_id 不能为空'}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                csv_file_id = int(csv_file_id)
+            except (ValueError, TypeError):
+                return Response({'error': 'csv_file_id 必须是整数'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 获取文件（必须是当前用户上传）
+            csv_file = UploadedFile.objects.get(id=csv_file_id, created_by=request.user)
+
+            if csv_file.file_type != 'spreadsheet':
+                return Response({'error': '必须是Excel/CSV文件（file_type=spreadsheet）'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not csv_file.file or not os.path.exists(csv_file.file.path):
+                return Response({'error': '文件不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+            from .services import MonthlyReportService
+            svc = MonthlyReportService()
+
+            # 预览尽量不失败：优先走“完整处理链”，失败则退化为原始CSV预览
+            df_raw = svc._read_csv_data(csv_file.file.path)
+            df_raw, missing_required = svc._normalize_csv_columns(df_raw)
+            export_df = None
+            warning = None
+
+            if missing_required:
+                warning = f"CSV缺少必要列: {', '.join(missing_required)}"
+
+            try:
+                df = svc._preprocess_data(df_raw.copy(), {'uniform_profit_rate': bool(uniform_profit_rate)})
+                df = svc._calculate_profit_rates(df, {'uniform_profit_rate': bool(uniform_profit_rate)})
+                df = svc._calculate_costs(df, {'uniform_profit_rate': bool(uniform_profit_rate)})
+                export_df = df.drop(columns=["是检测订单"], errors='ignore')
+            except Exception as e:
+                extra = f"；原因为: {str(e)}"
+                warning = (warning or "预览处理链失败，已退化为原始CSV预览") + extra
+                logger.warning(warning)
+                export_df = df_raw
+
+            columns = [str(c) for c in export_df.columns.tolist()]
+
+            head_n = 20
+            rows_head_df = export_df.head(head_n).fillna('')
+            rows_head = [[str(v) if v is not None else '' for v in row] for row in rows_head_df.values.tolist()]
+
+            return Response({
+                'columns': columns,
+                'rows_head': rows_head,
+                'total_rows': int(len(export_df)),
+                **({'warning': warning} if warning else {}),
+            })
+
+        except UploadedFile.DoesNotExist:
+            return Response({'error': '文件不存在或无权限访问'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"CSV预览失败: {e}")
+            return Response({'error': f'预览失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GenerateMonthlyReportFromCSVView(APIView):
+    """从已上传CSV生成月度账表Excel并落盘，返回 MonthlyReport 信息"""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="从CSV生成月度账表（Excel）",
+        description="基于已上传的CSV（csv_file_id）生成Excel，支持 selected_columns，并保存到 MonthlyReport.excel_file",
+        request=inline_serializer(
+            name='GenerateMonthlyFromCSVRequest',
+            fields={
+                'csv_file_id': serializers.IntegerField(help_text='UploadedFile ID（spreadsheet）'),
+                'output_name': serializers.CharField(required=False, help_text='输出标题/文件名（不含扩展名）'),
+                'uniform_profit_rate': serializers.BooleanField(required=False, default=False),
+                'selected_columns': serializers.ListField(child=serializers.CharField(), required=False, help_text='保留的表头列（可空=全部）'),
+            }
+        ),
+        responses={200: MonthlyReportSerializer}
+    )
+    def post(self, request):
+        try:
+            csv_file_id = request.data.get('csv_file_id')
+            output_name = request.data.get('output_name') or ''
+            uniform_profit_rate = request.data.get('uniform_profit_rate', False)
+            selected_columns = request.data.get('selected_columns') or None
+
+            if csv_file_id is None:
+                return Response({'error': 'csv_file_id 不能为空'}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                csv_file_id = int(csv_file_id)
+            except (ValueError, TypeError):
+                return Response({'error': 'csv_file_id 必须是整数'}, status=status.HTTP_400_BAD_REQUEST)
+
+            csv_file = UploadedFile.objects.get(id=csv_file_id, created_by=request.user)
+            if csv_file.file_type != 'spreadsheet':
+                return Response({'error': '必须是Excel/CSV文件（file_type=spreadsheet）'}, status=status.HTTP_400_BAD_REQUEST)
+            if not csv_file.file or not os.path.exists(csv_file.file.path):
+                return Response({'error': '文件不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+            # 生成标题 & 报表月份（默认当前月）
+            today = timezone.now().date()
+            report_month = date(today.year, today.month, 1)
+            title = (output_name or '').strip() or f"{today.month}月份账表"
+
+            # 生成Excel bytes
+            from .services import MonthlyReportService
+            svc = MonthlyReportService()
+
+            # 复用现有服务的处理链，最后用 _generate_excel_file 产出 bytes
+            df = svc._read_csv_data(csv_file.file.path)
+            df, missing_required = svc._normalize_csv_columns(df)
+            if missing_required:
+                return Response(
+                    {
+                        'error': f"CSV缺少必要列: {', '.join(missing_required)}",
+                        'missing_columns': missing_required,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            df = svc._preprocess_data(df, {'uniform_profit_rate': bool(uniform_profit_rate)})
+            df = svc._calculate_profit_rates(df, {'uniform_profit_rate': bool(uniform_profit_rate)})
+            df = svc._calculate_costs(df, {'uniform_profit_rate': bool(uniform_profit_rate)})
+
+            export_df = df.drop(columns=["是检测订单"], errors='ignore')
+            if selected_columns:
+                # 仅保留存在的列；不存在列忽略（列选择的严格校验/提示在后续 todo 里补齐）
+                selected = [c for c in selected_columns if c in export_df.columns]
+                if selected:
+                    export_df = export_df[selected]
+
+            # 生成Excel bytes（借用服务的样式/汇总行）
+            excel_bytes = svc._generate_excel_file(export_df, {'uniform_profit_rate': bool(uniform_profit_rate)})
+
+            # 汇总数据（可选：先用原 df 生成，避免列裁剪影响统计；这里先保持一致）
+            summary_data = svc._generate_summary_data(df)
+
+            # 写入 MonthlyReport 记录与文件
+            with transaction.atomic():
+                monthly_report = MonthlyReport.objects.create(
+                    title=title,
+                    report_month=report_month,
+                    csv_file=csv_file,
+                    config_data={
+                        'uniform_profit_rate': bool(uniform_profit_rate),
+                        'selected_columns': selected_columns or [],
+                    },
+                    summary_data=summary_data,
+                    is_generated=True,
+                    generation_completed_at=timezone.now(),
+                    created_by=request.user,
+                )
+
+                import time as _time
+                excel_filename = f"monthly_report_{monthly_report.id}_{int(_time.time())}.xlsx"
+                monthly_report.excel_file.save(excel_filename, ContentFile(excel_bytes), save=True)
+
+            return Response(MonthlyReportSerializer(monthly_report).data)
+
+        except UploadedFile.DoesNotExist:
+            return Response({'error': '文件不存在或无权限访问'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"从CSV生成月度账表失败: {e}")
+            return Response({'error': f'生成失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

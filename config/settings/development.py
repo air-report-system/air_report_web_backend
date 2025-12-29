@@ -49,6 +49,14 @@ CACHES = {
     }
 }
 
+# 开发环境 Channels：不依赖 Redis，避免本机未启动 Redis 导致 WebSocket 订阅/广播失败
+# 注意：InMemoryChannelLayer 仅适用于单进程开发调试，不支持多进程/多实例部署的跨进程消息。
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    }
+}
+
 # 开发环境Celery设置
 CELERY_TASK_ALWAYS_EAGER = True  # 同步执行任务，便于调试
 CELERY_TASK_EAGER_PROPAGATES = True

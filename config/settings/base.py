@@ -21,6 +21,8 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,alicee.me,*.alic
 
 # Application definition
 DJANGO_APPS = [
+    # Daphne 必须在 django.contrib.staticfiles 之前（否则 runserver 系统检查会报错）
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
