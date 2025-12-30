@@ -304,7 +304,7 @@ class OpenAIAIService(BaseAIService):
                 "max_tokens": 1000
             }
         elif request_data.get('type') == 'text':
-            return {
+            payload: Dict[str, Any] = {
                 "model": self.model_name,
                 "messages": [
                     {
@@ -314,13 +314,40 @@ class OpenAIAIService(BaseAIService):
                 ],
                 "max_tokens": 1000
             }
+            # 允许调用方强制 JSON 输出（OpenAI 兼容接口支持 response_format）
+            # 例如：{"response_format": {"type": "json_object"}}
+            response_format = request_data.get('response_format')
+            if isinstance(response_format, dict):
+                payload["response_format"] = response_format
+            elif response_format == "json_object":
+                payload["response_format"] = {"type": "json_object"}
+
+            # 可选参数透传（温度/采样等），避免影响其他调用
+            if isinstance(request_data.get('temperature'), (int, float)):
+                payload["temperature"] = request_data["temperature"]
+            return payload
         else:
             raise ValueError(f"不支持的请求类型: {request_data.get('type')}")
     
     def _parse_openai_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
         """解析OpenAI API响应"""
         if 'choices' in response_data and response_data['choices']:
-            generated_text = response_data['choices'][0]['message']['content']
+            generated = response_data['choices'][0].get('message', {}).get('content')
+            # 兼容：message.content 可能是 str / list / dict（启用 response_format=json_object 或部分网关）
+            if isinstance(generated, str):
+                generated_text = generated
+            elif isinstance(generated, dict):
+                generated_text = str(generated.get('text') or generated.get('content') or generated)
+            elif isinstance(generated, list):
+                parts = []
+                for it in generated:
+                    if isinstance(it, str):
+                        parts.append(it)
+                    elif isinstance(it, dict):
+                        parts.append(str(it.get('text') or it.get('content') or ''))
+                generated_text = ''.join([p for p in parts if p])
+            else:
+                generated_text = '' if generated is None else str(generated)
             return {
                 'success': True,
                 'generated_text': generated_text,
@@ -342,24 +369,57 @@ class AIServiceFactory:
     
     def __init__(self):
         self.service_manager = ai_service_manager
-        self._current_service = None
+        # 注意：不同用户可能配置不同的默认AI服务，不能用单例缓存污染
+        self._current_service_by_user: Dict[str, BaseAIService] = {}
+
+    def clear_cache(self, user=None):
+        """
+        清理工厂缓存，确保下次 get_service 读取最新配置。
+        - user=None: 清理全部用户缓存
+        - user!=None: 仅清理该用户缓存
+        """
+        if user is None:
+            self._current_service_by_user.clear()
+            return
+        user_key = str(getattr(user, 'pk', 'global') or 'global')
+        self._current_service_by_user.pop(user_key, None)
     
-    def get_service(self, service_name: Optional[str] = None) -> BaseAIService:
+    def get_service(self, service_name: Optional[str] = None, user=None) -> BaseAIService:
         """获取AI服务实例"""
+        user_key = str(getattr(user, 'pk', 'global') or 'global')
+
         if service_name:
             # 切换到指定服务
-            if self.service_manager.switch_service(service_name):
-                self._current_service = None  # 清除缓存
+            if self.service_manager.switch_service(service_name, user=user):
+                # 清除该用户缓存
+                self._current_service_by_user.pop(user_key, None)
         
+        cached = self._current_service_by_user.get(user_key)
+        if cached:
+            return cached
+
         # 如果没有缓存的服务，创建新的
-        if not self._current_service:
-            config = self.service_manager.get_current_service_config()
-            if not config:
-                raise Exception("没有可用的AI服务配置")
+        config = self.service_manager.get_current_service_config(user=user)
+        if not config:
+            raise Exception("没有可用的AI服务配置")
+
+        try:
+            logger.debug(
+                "AIServiceFactory: 选中配置 name=%s provider=%s api_format=%s base_url=%s model=%s user=%s",
+                config.get('name'),
+                config.get('provider'),
+                config.get('api_format'),
+                config.get('api_base_url'),
+                config.get('model_name'),
+                getattr(user, 'username', None) or getattr(user, 'pk', None) or 'anonymous',
+            )
+        except Exception:
+            # 日志不应影响主流程
+            pass
             
-            self._current_service = self._create_service(config)
-        
-        return self._current_service
+        service = self._create_service(config)
+        self._current_service_by_user[user_key] = service
+        return service
     
     def _create_service(self, config: Dict[str, Any]) -> BaseAIService:
         """根据配置创建服务实例"""
@@ -373,7 +433,9 @@ class AIServiceFactory:
     
     def handle_service_failure(self, error: str, user=None) -> Optional[BaseAIService]:
         """处理服务故障，尝试切换到备用服务"""
-        current_service_name = self._current_service.service_name if self._current_service else 'unknown'
+        user_key = str(getattr(user, 'pk', 'global') or 'global')
+        current = self._current_service_by_user.get(user_key)
+        current_service_name = current.service_name if current else 'unknown'
         
         logger.warning(f"AI服务故障，尝试切换备用服务: {error}")
         
@@ -383,9 +445,9 @@ class AIServiceFactory:
         )
         
         if fallback_config:
-            self._current_service = self._create_service(fallback_config)
+            self._current_service_by_user[user_key] = self._create_service(fallback_config)
             logger.info(f"成功切换到备用服务: {fallback_config.get('name')}")
-            return self._current_service
+            return self._current_service_by_user[user_key]
         
         logger.error("所有AI服务都不可用")
         return None

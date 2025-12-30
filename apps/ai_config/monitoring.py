@@ -6,6 +6,7 @@ import time
 import traceback
 from typing import Dict, Any, Optional, Callable
 from functools import wraps
+from collections.abc import Mapping
 from django.utils import timezone
 from django.core.cache import cache
 from django.conf import settings
@@ -261,8 +262,21 @@ def monitor_ai_service(service_type: str = 'unknown'):
             error_handler = AIServiceErrorHandler()
             
             # 尝试从参数中获取服务配置和用户
-            service_config = kwargs.get('service_config') or (args[0] if args else {})
+            service_config = kwargs.get('service_config')
+            if service_config is None:
+                # 常见形态：实例方法，第一个参数是 self（非 dict）
+                candidate = args[0] if args else {}
+                if isinstance(candidate, Mapping):
+                    service_config = dict(candidate)
+                else:
+                    # 兼容 BaseAIService 实例：优先取 self.config
+                    cfg = getattr(candidate, 'config', None)
+                    service_config = dict(cfg) if isinstance(cfg, Mapping) else {}
+
             user = kwargs.get('user')
+            # 常见形态：process_request(self, request_data) 里 user 在 request_data 中
+            if user is None and len(args) >= 2 and isinstance(args[1], Mapping):
+                user = args[1].get('user')
             
             try:
                 result = func(*args, **kwargs)

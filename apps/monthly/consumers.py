@@ -12,6 +12,7 @@
 import json
 import logging
 from typing import Any, Dict, Optional
+import re
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -220,6 +221,51 @@ class MonthlyReportAIConsumer(AsyncWebsocketConsumer):
         """
         from apps.ai_config.factory import ai_service_factory
 
+        def _extract_first_json_object(text: str) -> Optional[Dict[str, Any]]:
+            """
+            容错：从模型输出中提取第一个 JSON 对象（允许前后夹杂说明文本/markdown）。
+            仅用于解析失败时的补救。
+            """
+            if not text:
+                return None
+            s = text.strip()
+            # 快速路径：本身就是 JSON
+            try:
+                obj = json.loads(s)
+                return obj if isinstance(obj, dict) else None
+            except Exception:
+                pass
+
+            # 去掉 ```json ... ``` 代码块包装
+            fenced = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", s, re.IGNORECASE)
+            if fenced:
+                inner = fenced.group(1).strip()
+                try:
+                    obj = json.loads(inner)
+                    return obj if isinstance(obj, dict) else None
+                except Exception:
+                    pass
+
+            # 从文本中找第一个 {...} 的平衡片段
+            start = s.find("{")
+            if start == -1:
+                return None
+            depth = 0
+            for i in range(start, len(s)):
+                ch = s[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        snippet = s[start : i + 1]
+                        try:
+                            obj = json.loads(snippet)
+                            return obj if isinstance(obj, dict) else None
+                        except Exception:
+                            return None
+            return None
+
         cols_str = '、'.join([c for c in columns if c])
         prompt = (
             "你是一个数据分析助手。你必须只输出严格的 JSON（不要代码块、不要解释）。\n"
@@ -244,20 +290,38 @@ class MonthlyReportAIConsumer(AsyncWebsocketConsumer):
             f"用户问题：{question}\n"
         )
 
-        service = ai_service_factory.get_service()
-        resp = service.process_request({
-            'type': 'text',
-            'prompt': prompt,
-            'service_type': 'monthly_excel_calc_plan',
-            'user': self.user,
-        })
+        def _call_ai() -> str:
+            service = ai_service_factory.get_service(user=self.user)
+            resp = service.process_request({
+                'type': 'text',
+                'prompt': prompt,
+                'service_type': 'monthly_excel_calc_plan',
+                'user': self.user,
+                # 尽量强制 JSON（对 OpenAI 兼容接口有效）
+                'response_format': 'json_object',
+                'temperature': 0,
+            })
+            return ((resp or {}).get('generated_text') or '').strip()
 
-        text = (resp or {}).get('generated_text') or ''
-        text = text.strip()
-        try:
-            plan = json.loads(text)
-        except Exception as e:
-            raise ValueError(f"AI未输出可解析JSON: {str(e)}; raw={text[:200]}")
+        text = _call_ai()
+        plan = _extract_first_json_object(text)
+        if not plan:
+            # 如果当前服务不按约定输出，尝试触发故障切换并重试一次
+            try:
+                ai_service_factory.handle_service_failure(
+                    error=f"AI未输出可解析JSON; raw={text[:200]}",
+                    user=self.user
+                )
+            except Exception:
+                # 切换失败也不影响原始错误返回
+                pass
+            text2 = _call_ai()
+            plan = _extract_first_json_object(text2)
+            if not plan:
+                raise ValueError(
+                    "AI未输出可解析JSON（已重试）: "
+                    f"raw1={text[:120]}; raw2={text2[:120]}"
+                )
 
         if not isinstance(plan, dict):
             raise ValueError("AI计划必须是JSON对象")

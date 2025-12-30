@@ -21,9 +21,10 @@ DATABASES = {
 CORS_ALLOW_ALL_ORIGINS = True
 
 # 开发环境静态文件设置
-STATICFILES_DIRS = [
+_static_candidate_dirs = [
     BASE_DIR / 'static',
 ]
+STATICFILES_DIRS = [p for p in _static_candidate_dirs if p.exists()]
 
 # 开发环境日志设置
 LOGGING['handlers']['console']['level'] = 'DEBUG'

@@ -243,50 +243,97 @@ class AIServiceManager:
 
     def __init__(self):
         self.config_manager = AIConfigFileManager()
-        self._current_service = None
+        # 注意：不同用户可能配置不同的默认服务，必须隔离缓存
+        self._current_service = None  # 全局/无用户场景
+        self._current_service_by_user: Dict[str, Dict[str, Any]] = {}
         self._service_cache = {}
         self._lock = threading.RLock()
 
-    def clear_cache(self):
+    def clear_cache(self, user=None):
         with self._lock:
             try:
                 self._service_cache.clear()
             except Exception as e:
                 logger.warning(f"清理服务缓存时发生异常，重建缓存: {e}")
                 self._service_cache = {}
-            self._current_service = None
+            if user is None:
+                self._current_service = None
+                self._current_service_by_user.clear()
+            else:
+                user_key = str(getattr(user, 'pk', 'global') or 'global')
+                self._current_service_by_user.pop(user_key, None)
         
         try:
             from .factory import ai_service_factory
-            if hasattr(ai_service_factory, '_current_service'):
-                ai_service_factory._current_service = None
+            # 工厂侧也需要同步清缓存（支持按用户缓存）
+            if hasattr(ai_service_factory, 'clear_cache'):
+                ai_service_factory.clear_cache(user=user)
         except Exception as e:
             logger.warning(f"同步清理工厂缓存失败: {e}", exc_info=True)
 
     def get_current_service_config(self, user=None) -> Optional[Dict[str, Any]]:
         """获取当前使用的服务配置"""
         with self._lock:
-            if self._current_service:
+            if user is None and self._current_service:
                 return copy.deepcopy(self._current_service)
+            if user is not None:
+                user_key = str(getattr(user, 'pk', 'global') or 'global')
+                cached = self._current_service_by_user.get(user_key)
+                if cached:
+                    return copy.deepcopy(cached)
 
         # 尝试从数据库获取默认配置
         logger.debug("AIServiceManager: 开始从数据库获取默认AI配置...")
         try:
-            queryset = AIServiceConfig.objects.filter(
+            # 1) 优先：用户自己的默认配置
+            if user:
+                user_default = AIServiceConfig.objects.filter(
+                    is_active=True,
+                    is_default=True,
+                    created_by=user
+                ).order_by('priority').first()
+                if user_default:
+                    logger.debug(
+                        f"AIServiceManager: 命中用户默认配置: ID={user_default.id}, 名称='{user_default.name}'"
+                    )
+                    with self._lock:
+                        cfg = self._db_config_to_dict(user_default)
+                        user_key = str(getattr(user, 'pk', 'global') or 'global')
+                        self._current_service_by_user[user_key] = cfg
+                        return copy.deepcopy(cfg)
+
+                # 2) 其次：用户任意可用配置（按优先级）
+                user_any = AIServiceConfig.objects.filter(
+                    is_active=True,
+                    created_by=user
+                ).order_by('priority').first()
+                if user_any:
+                    logger.debug(
+                        f"AIServiceManager: 用户无默认配置，使用用户优先级最高配置: "
+                        f"ID={user_any.id}, 名称='{user_any.name}'"
+                    )
+                    with self._lock:
+                        cfg = self._db_config_to_dict(user_any)
+                        user_key = str(getattr(user, 'pk', 'global') or 'global')
+                        self._current_service_by_user[user_key] = cfg
+                        return copy.deepcopy(cfg)
+
+            # 3) 全局默认配置（任意用户创建的默认）
+            db_config = AIServiceConfig.objects.filter(
                 is_active=True,
                 is_default=True
-            )
-            # 用户隔离：如果提供了用户，只查询该用户的配置
-            if user:
-                queryset = queryset.filter(created_by=user)
-            
-            db_config = queryset.first()
+            ).order_by('priority').first()
 
             if db_config:
                 logger.debug(f"AIServiceManager: 成功从数据库找到默认配置: ID={db_config.id}, 名称='{db_config.name}'")
                 with self._lock:
-                    self._current_service = self._db_config_to_dict(db_config)
-                    return copy.deepcopy(self._current_service)
+                    cfg = self._db_config_to_dict(db_config)
+                    if user is None:
+                        self._current_service = cfg
+                    else:
+                        user_key = str(getattr(user, 'pk', 'global') or 'global')
+                        self._current_service_by_user[user_key] = cfg
+                    return copy.deepcopy(cfg)
             else:
                 logger.debug("AIServiceManager: 数据库中没有找到激活的默认配置。")
         except Exception as e:
@@ -298,8 +345,12 @@ class AIServiceManager:
         if file_config:
             logger.debug(f"AIServiceManager: 成功从JSON文件找到默认配置: 名称='{file_config.get('name')}'")
             with self._lock:
-                self._current_service = file_config
-                return copy.deepcopy(self._current_service)
+                if user is None:
+                    self._current_service = file_config
+                else:
+                    user_key = str(getattr(user, 'pk', 'global') or 'global')
+                    self._current_service_by_user[user_key] = file_config
+                return copy.deepcopy(file_config)
         else:
             logger.debug("AIServiceManager: JSON配置文件中也没有找到默认配置。")
 
@@ -346,12 +397,18 @@ class AIServiceManager:
 
             if db_config:
                 with self._lock:
-                    self._current_service = self._db_config_to_dict(db_config)
+                    cfg = self._db_config_to_dict(db_config)
+                    if user is None:
+                        self._current_service = cfg
+                    else:
+                        user_key = str(getattr(user, 'pk', 'global') or 'global')
+                        self._current_service_by_user[user_key] = cfg
                 self._log_service_switch(service_name, user, 'database')
                 try:
                     from .factory import ai_service_factory
-                    if hasattr(ai_service_factory, '_current_service'):
-                        ai_service_factory._current_service = None
+                    # 工厂已改为按用户缓存，切换成功后必须清理对应用户缓存
+                    if hasattr(ai_service_factory, 'clear_cache'):
+                        ai_service_factory.clear_cache(user=user)
                 except Exception as e:
                     logger.warning(f"切换服务时同步清理工厂缓存失败: {e}", exc_info=True)
                 return True
@@ -360,13 +417,17 @@ class AIServiceManager:
             file_config = self.config_manager.get_service_config(service_name)
             if file_config and file_config.get('is_active', True):
                 with self._lock:
-                    self._current_service = file_config
+                    if user is None:
+                        self._current_service = file_config
+                    else:
+                        user_key = str(getattr(user, 'pk', 'global') or 'global')
+                        self._current_service_by_user[user_key] = file_config
                 self._log_service_switch(service_name, user, 'file')
                 # 失效工厂缓存，确保下次获取到新实例
                 try:
                     from .factory import ai_service_factory
-                    if hasattr(ai_service_factory, '_current_service'):
-                        ai_service_factory._current_service = None
+                    if hasattr(ai_service_factory, 'clear_cache'):
+                        ai_service_factory.clear_cache(user=user)
                 except Exception as e:
                     logger.warning(f"切换服务时同步清理工厂缓存失败: {e}", exc_info=True)
                 return True
@@ -404,6 +465,12 @@ class AIServiceManager:
             test_result.update(result)
 
         except Exception as e:
+            try:
+                end_time = timezone.now()
+                # 失败也记录耗时，便于前端展示“超时/快速失败”
+                test_result['response_time_ms'] = int((end_time - start_time).total_seconds() * 1000)
+            except Exception:
+                pass
             test_result['error_message'] = str(e)
             logger.error(f"服务测试失败: {e}")
 
@@ -524,43 +591,57 @@ class AIServiceManager:
         )
 
         if response.status_code == 200:
-            return {'message': 'Gemini服务连接成功'}
+            try:
+                data = response.json()
+            except Exception:
+                raise Exception("Gemini API返回200但不是合法JSON")
+
+            # 尝试解析出模型文本，确保“确实可用”而不仅是 HTTP 200
+            text = None
+            try:
+                if data.get('candidates'):
+                    cand0 = data['candidates'][0]
+                    parts = cand0.get('content', {}).get('parts') or []
+                    if parts and isinstance(parts[0], dict):
+                        text = parts[0].get('text')
+            except Exception:
+                text = None
+
+            if not text or not str(text).strip():
+                raise Exception("Gemini API返回200但未解析到模型输出文本")
+
+            return {
+                'message': 'Gemini服务连接成功',
+                'sample_output': str(text).strip()[:200],
+            }
         else:
             raise Exception(f"Gemini API错误: {response.status_code} - {response.text}")
 
     def _test_openai_service(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """测试OpenAI服务"""
-        import requests
+        """
+        重要：测试必须与“真实调用”使用同一套代码路径，否则会出现：
+        - 真实调用可用
+        - 但测试因解析/参数差异误判失败
+        """
+        from .factory import OpenAIAIService
 
-        url = f"{config['api_base_url']}/chat/completions"
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {config["api_key"]}'
+        service = OpenAIAIService(config, self)
+        resp = service.process_request({
+            'type': 'text',
+            'prompt': 'hi',
+            'service_type': 'test_openai',
+            'user': None,
+        })
+
+        text = (resp or {}).get('generated_text')
+        if not text or not str(text).strip():
+            raise Exception("OpenAI接口返回但未解析到模型输出文本")
+
+        return {
+            'message': 'OpenAI服务连接成功',
+            'sample_output': str(text).strip()[:200],
         }
-
-        # 简单的测试请求
-        payload = {
-            "model": config['model_name'],
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "测试连接，请回复'连接成功'"
-                }
-            ],
-            "max_tokens": 10
-        }
-
-        response = requests.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=config.get('timeout_seconds', 30)
-        )
-
-        if response.status_code == 200:
-            return {'message': 'OpenAI服务连接成功'}
-        else:
-            raise Exception(f"OpenAI API错误: {response.status_code} - {response.text}")
 
     def _log_service_switch(self, service_name: str, user, source: str):
         """记录服务切换日志"""

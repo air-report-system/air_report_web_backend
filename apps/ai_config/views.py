@@ -124,6 +124,8 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             old_data = AIServiceConfigSerializer(serializer.instance).data
             config = serializer.save()
+            # 配置更新后需要清理 AI 服务缓存，确保“热加载”到最新 base_url/model/key 等
+            transaction.on_commit(lambda: ai_service_manager.clear_cache())
             
             # 记录更新历史
             AIConfigHistory.objects.create(
@@ -187,18 +189,33 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
             )
             
             logger.info(f"用户 {request.user.username} 测试了AI配置: {config.name}")
-            
+            # 成功：HTTP 200；失败：HTTP 400（前端可直接拿到错误码）
+            if test_result.get('success'):
+                return Response({
+                    'success': True,
+                    'message': '测试成功',
+                    'http_status': 200,
+                    'response_time_ms': test_result.get('response_time_ms'),
+                    'sample_output': test_result.get('sample_output'),
+                    'result': test_result,
+                }, status=status.HTTP_200_OK)
+
             return Response({
-                'success': True,
-                'message': '测试完成',
-                'result': test_result
-            })
+                'success': False,
+                'message': '测试失败',
+                'http_status': 400,
+                'response_time_ms': test_result.get('response_time_ms'),
+                'error_message': test_result.get('error_message') or '未知错误',
+                'result': test_result,
+            }, status=status.HTTP_400_BAD_REQUEST)
             
         except Exception as e:
             logger.error(f"测试AI配置失败: {e}")
             return Response({
                 'success': False,
-                'message': f'测试失败: {str(e)}'
+                'message': '测试失败',
+                'http_status': 400,
+                'error_message': str(e),
             }, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=True, methods=['post'])

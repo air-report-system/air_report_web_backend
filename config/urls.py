@@ -62,8 +62,9 @@ urlpatterns = [
     path('api/v1/reports', include('apps.reports.urls')),  # 不带斜杠的版本
     path('api/v1/batch/', include('apps.batch.urls')),
     path('api/v1/monthly/', include('apps.monthly.urls')),
-    path('api/v1/orders/', include('apps.orders.urls')),
-    path('api/v1/orders', include('apps.orders.urls')),  # 不带斜杠的版本
+    # orders 同时支持带/不带斜杠，但避免 namespace 'orders' 重复（urls.W005）
+    path('api/v1/orders/', include(('apps.orders.urls', 'orders'), namespace='orders')),
+    path('api/v1/orders', include(('apps.orders.urls', 'orders'), namespace='orders_no_slash')),  # 不带斜杠的版本
     path('api/v1/ai-config/', include('apps.ai_config.urls')),
 ]
 

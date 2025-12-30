@@ -133,9 +133,11 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_DIRS = [
+# 仅添加真实存在的静态目录，避免启动时出现 staticfiles.W004 警告
+_static_candidate_dirs = [
     BASE_DIR / 'static',
 ]
+STATICFILES_DIRS = [p for p in _static_candidate_dirs if p.exists()]
 
 # Media files
 MEDIA_URL = '/media/'
